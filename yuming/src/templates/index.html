@@ -1,0 +1,54 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>首页</title>
+<link  href="" type="text/css" rel="stylesheet"/>
+</head>
+
+<body>
+	<div id="contain">
+        <h1>Yuming</h1>
+		<h3>可用域名列表 </h3>
+        <table id="yuming_table" width="100%" border="0" align="center" cellpadding="10" cellspacing="1" bgcolor="#CCCCCC" style="margin:1em 0;">
+            <tbody>
+                <tr>
+                    <th width="15%" bgcolor="#DDEEFF">域名 </th>
+					<th width="10%" bgcolor="#DDEEFF">状态 </th>
+                    <th width="15%" bgcolor="#DDEEFF">注册日期</th>
+					<th width="15%" bgcolor="#DDEEFF">到期日期</th>
+                    <th width="15%" bgcolor="#DDEEFF">删除日期</th>
+                    <th width="10%" bgcolor="#DDEEFF">是否关注</th>
+                    <th width="10%" bgcolor="#DDEEFF">加入黑名单</th>
+                </tr>
+                {% for name_one in name_all %}
+                <tr>
+                    <td>{{name_one.name}}</td>
+                    <td>{{name_one.state}}</td>
+                    <td>{{name_one.registration_date}}</td>
+                    <td>{{name_one.expiration_date}}</td>
+                    <td>{{name_one.delete_date}}</td>
+					<td><button id="bt_follow" type="button" 
+						{% if name_one.follow == 'yes'%}
+						 	onclick="yuming_unfollow('{{name_one.name}}')">取消关注</button>
+						{% else %}
+							onclick="yuming_follow('{{name_one.name}}')">点击关注</button>
+						{% endif %}
+					</td>
+					<td><button id="bt_blacklist" type="button" 
+						{% if name_one.blacklist == 'yes'%}
+						 	onclick="blacklist_pop('{{name_one.name}}')">移出黑名单</button>
+						{% else %}
+							onclick="blacklist_push('{{name_one.name}}')">移入黑名单</button>
+						{% endif %}
+					</td>
+                </tr>
+                {% endfor %}
+
+            </tbody>
+        </table>
+	</div>
+	<script type="text/javascript" src="../static/lib/jquery.min.js"></script>
+	<script type="text/javascript" src="../static/js/index.js"></script>
+</body>
+</html>

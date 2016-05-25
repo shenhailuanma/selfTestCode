@@ -1,0 +1,9 @@
+/usr/local/yuming/var/logs/*.log {
+    daily
+    missingok
+    rotate 7
+    copytruncate
+    compress
+    delaycompress
+    notifempty
+}

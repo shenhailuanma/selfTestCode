@@ -1,0 +1,4 @@
+# sync following yumings
+0 * * * *   root    python /usr/local/yuming/src/sync_follow_yuming.py &
+# sync yumings
+0 8 * * *   root    python /usr/local/yuming/src/sync_yuming.py &
