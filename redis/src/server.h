@@ -72,16 +72,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
-static int Glb_Log_Level = 4;
-#define MY_LOG_DEBUG(format, arg...)    \
-    if (Glb_Log_Level >=4) {    \
-        time_t Log_Timer = time(NULL); \
-        struct tm * Log_tm_ptr = localtime(&Log_Timer);\
-        printf("[%d-%d-%d %d:%d:%d][debug][F:%s][L:%u] " format, \
-            (1900+Log_tm_ptr->tm_year), (1+Log_tm_ptr->tm_mon), Log_tm_ptr->tm_mday, \
-            Log_tm_ptr->tm_hour, Log_tm_ptr->tm_min, Log_tm_ptr->tm_sec, \
-            __FUNCTION__ ,__LINE__,  ## arg ); \
-    }
 
 /* Error codes */
 #define C_OK                    0
@@ -948,6 +938,8 @@ struct redisServer {
 
     /* share memory Pubsub */
     dict *smempubsub_channels; /* Map channels to list of subscribed clients , add by zx for smem */
+    list *smem_list;   /* add by zx for smem */
+
 
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
@@ -1483,8 +1475,26 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
+/* add by zx for smem */
+#define SMEM_T_STATE_AVAILAVLE      0
+#define SMEM_T_STATE_USED           1
+struct smem_t {
+    int     id;   /* the id of the share memory */  
+    int     size; /* the share memory buffer size */
+    unsigned int    uid;
+    unsigned int    mode; 
+    int     state; /* the share memory state, define by SMEM_T_STATE_XXX */
+    int     cnt;
+};
+
+int smemListMatch(void *a, void *b);
+
+
+
 /* Commands prototypes */
 void smemgetCommand(client *c);
+void smemfreeCommand(client *c);
+void smemrmCommand(client *c);
 void smempublishCommand(client *c);
 void smemsubscribeCommand(client *c);
 

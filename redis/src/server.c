@@ -124,6 +124,8 @@ struct redisServer server; /* server global state */
  */
 struct redisCommand redisCommandTable[] = {
     {"smemget",smemgetCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"smemfree",smemfreeCommand,-2,"w",0,NULL,1,-1,1,0,0},
+    {"smemrm",smemrmCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"smemsubscribe",smemsubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
     {"smempublish",smempublishCommand,3,"pltF",0,NULL,0,0,0,0,0},
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
@@ -1904,9 +1906,10 @@ void initServer(void) {
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
 
     server.smempubsub_channels = dictCreate(&keylistDictType,NULL);  // add by zx for smem
-    server.smem_used_list = listCreate(); // add by zx for smem
-    server.smem_available_list = listCreate(); // add by zx for smem
-
+    server.smem_list = listCreate(); // add by zx for smem
+    listSetFreeMethod(server.smem_list,zfree);        // add by zx for smem
+    listSetMatchMethod(server.smem_list,smemListMatch);  // add by zx for smem
+    
     server.cronloops = 0;
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
