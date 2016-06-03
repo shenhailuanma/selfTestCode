@@ -34,3 +34,28 @@ pushd ${build_dir}
         echo "########## redis has download ##########"
     fi
 popd
+
+
+# download hiredis
+pushd ${build_dir}
+    if ! [ -e "hiredis-0.13.3.zip" ]
+    then
+        # download hiredis
+        echo "########## to download hiredis ##########"
+        wget https://codeload.github.com/redis/hiredis/zip/v0.13.3 -O hiredis-0.13.3.zip
+        echo "########## hiredis has download over ##########"
+    else
+        echo "########## hiredis has download ##########"
+    fi
+
+    unzip hiredis-0.13.3.zip
+    pushd hiredis-0.13.3
+    make PREFIX=${release_dir}
+    make PREFIX=${release_dir} install
+    popd
+
+popd
+
+
+
+

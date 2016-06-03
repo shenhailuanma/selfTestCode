@@ -22,7 +22,7 @@ void smemgetCommand(client *c)
     // check the size
 
     if(getLongLongFromObject(c->argv[1],&ll_size) == C_OK){
-        serverLog(LL_WARNING,"will get share memory size: %lld", ll_size);
+        //serverLog(LL_WARNING,"[smemgetCommand] will get share memory size: %lld", ll_size);
         size = ll_size;
         
         // get buffer from list
@@ -67,6 +67,8 @@ void smemgetCommand(client *c)
         
     }
 
+    serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %d", mem_id);
+
     addReplyLongLong(c,mem_id);
     return C_OK;
 }
@@ -84,10 +86,10 @@ void smemfreeCommand(client *c)
     for (j = 1; j < c->argc; j++){
         // check the size
         if(getLongLongFromObject(c->argv[j],&ll_var) == C_OK){
-            serverLog(LL_WARNING,"get share memory id: %lld", ll_var);
+            serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %lld", ll_var);
             mem_id = ll_var;
 
-            serverLog(LL_WARNING,"[smemfreeCommand] smem_list len=%d.", listLength(server.smem_list));
+            //serverLog(LL_WARNING,"[smemfreeCommand] smem_list len=%d.", listLength(server.smem_list));
 
             // get the item from list
             lnode = listSearchKey(server.smem_list, &mem_id);
@@ -103,10 +105,9 @@ void smemfreeCommand(client *c)
                 }
 
                 free_cnt ++;
-            }else{
-                serverLog(LL_WARNING,"[smemfreeCommand] not found the id(%d) in list.", mem_id);
-
-            }
+            }//else{
+            //    serverLog(LL_WARNING,"[smemfreeCommand] not found the id(%d) in list.", mem_id);
+            //}
         }
         
     }
@@ -131,7 +132,7 @@ void smemrmCommand(client *c)
     for (j = 1; j < c->argc; j++){
         // check the size
         if(getLongLongFromObject(c->argv[j],&ll_var) == C_OK){
-            serverLog(LL_WARNING,"get share memory id: %lld", ll_var);
+            //serverLog(LL_WARNING,"get share memory id: %lld", ll_var);
             mem_id = ll_var;
 
             //serverLog(LL_WARNING,"[smemrmCommand] smem_list len=%d.", listLength(server.smem_list));
@@ -139,11 +140,11 @@ void smemrmCommand(client *c)
             // get the item from list
             lnode = listSearchKey(server.smem_list, &mem_id);
             if(lnode){
-                serverLog(LL_WARNING,"[smemrmCommand] rm the id(%d) in list.", mem_id);
+                //serverLog(LL_WARNING,"[smemrmCommand] rm the id(%d) in list.", mem_id);
                 listDelNode(server.smem_list, lnode);
 
             }else
-                serverLog(LL_WARNING,"[smemrmCommand] not found the id(%d) in list, try to free.", mem_id);
+                //serverLog(LL_WARNING,"[smemrmCommand] not found the id(%d) in list, try to free.", mem_id);
 
             if(!smem_free_buffer(mem_id)){
                 free_cnt ++;
@@ -208,6 +209,28 @@ int smempubsubPublishMessage(robj *channel, robj *message) {
     dictEntry *de;
     listNode *ln;
     listIter li;
+    int mem_id = -1;
+    struct smem_t * smem_p = NULL;
+    listNode *lnode = NULL;
+    long long ll_var;
+
+    /* Get the share memory id */
+    if(getLongLongFromObject(message,&ll_var) == C_OK){
+        //serverLog(LL_WARNING,"[smempubsubPublishMessage] get share memory id: %lld", ll_var);
+        mem_id = ll_var;
+
+        //serverLog(LL_WARNING,"[smempubsubPublishMessage] smem_list len=%d.", listLength(server.smem_list));
+
+        // get the item from list
+        lnode = listSearchKey(server.smem_list, &mem_id);
+        if(lnode){
+            smem_p = lnode->value;
+        }else{
+            //serverLog(LL_WARNING,"[smempubsubPublishMessage] not found the id(%d) in list.", mem_id);
+            mem_id = -1;
+        }
+    }
+
 
     /* Send to clients listening for that channel */
     de = dictFind(server.smempubsub_channels,channel);
@@ -225,6 +248,12 @@ int smempubsubPublishMessage(robj *channel, robj *message) {
             addReplyBulk(c,channel);
             addReplyBulk(c,message);
             receivers++;
+
+            // if message is share memory id, should increase use count
+            if(lnode){
+                smem_p->cnt++;
+                //serverLog(LL_WARNING,"[smempubsubPublishMessage] receivers:%d, smem_p->cnt=%d.", receivers, smem_p->cnt);
+            }
         }
     }
 

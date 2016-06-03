@@ -42,7 +42,14 @@ pushd ${build_dir}
     cp -rf ${current_dir}/src/networking.c  ${build_dir}/redis-3.2.0/src/
     cp -rf ${current_dir}/src/redis-cli.c   ${build_dir}/redis-3.2.0/src/
 
+    cp -rf ${current_dir}/deps/hiredis/async.c   ${build_dir}/redis-3.2.0/deps/hiredis
+
+
     make PREFIX=${release_dir}
     make PREFIX=${release_dir} install
     popd
 popd
+
+
+gcc -o ${release_dir}/bin/producer ${current_dir}/test/producer.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a
+gcc -o ${release_dir}/bin/consumer ${current_dir}/test/consumer.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a -levent -lpthread
