@@ -86,7 +86,7 @@ void smemfreeCommand(client *c)
     for (j = 1; j < c->argc; j++){
         // check the size
         if(getLongLongFromObject(c->argv[j],&ll_var) == C_OK){
-            serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %lld", ll_var);
+            //serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %lld", ll_var);
             mem_id = ll_var;
 
             //serverLog(LL_WARNING,"[smemfreeCommand] smem_list len=%d.", listLength(server.smem_list));
@@ -156,6 +156,70 @@ void smemrmCommand(client *c)
 
     addReplyLongLong(c,free_cnt);
     return C_OK;
+}
+
+
+/* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
+ * 0 if the client was not subscribed to the specified channel. */
+int smempubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
+    dictEntry *de;
+    list *clients;
+    listNode *ln;
+    int retval = 0;
+
+    /* Remove the channel from the client -> channels hash table */
+    incrRefCount(channel); /* channel may be just a pointer to the same object
+                            we have in the hash tables. Protect it... */
+    if (dictDelete(c->smempubsub_channels,channel) == DICT_OK) {
+        retval = 1;
+        /* Remove the client from the channel -> clients list hash table */
+        de = dictFind(server.smempubsub_channels,channel);
+        serverAssertWithInfo(c,NULL,de != NULL);
+        clients = dictGetVal(de);
+        ln = listSearchKey(clients,c);
+        serverAssertWithInfo(c,NULL,ln != NULL);
+        listDelNode(clients,ln);
+        if (listLength(clients) == 0) {
+            /* Free the list and associated hash entry at all if this was
+             * the latest client, so that it will be possible to abuse
+             * Redis PUBSUB creating millions of channels. */
+            dictDelete(server.smempubsub_channels,channel);
+        }
+    }
+    /* Notify the client */
+    if (notify) {
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.unsubscribebulk);
+        addReplyBulk(c,channel);
+        addReplyLongLong(c,dictSize(c->smempubsub_channels));
+
+    }
+    decrRefCount(channel); /* it is finally safe to release it */
+    return retval;
+}
+
+
+/* Unsubscribe from all the channels. Return the number of channels the
+ * client was subscribed to. */
+int smempubsubUnsubscribeAllChannels(client *c, int notify) {
+    dictIterator *di = dictGetSafeIterator(c->smempubsub_channels);
+    dictEntry *de;
+    int count = 0;
+
+    while((de = dictNext(di)) != NULL) {
+        robj *channel = dictGetKey(de);
+
+        count += smempubsubUnsubscribeChannel(c,channel,notify);
+    }
+    /* We were subscribed to nothing? Still reply to the client. */
+    if (notify && count == 0) {
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.unsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->smempubsub_channels));
+    }
+    dictReleaseIterator(di);
+    return count;
 }
 
 

@@ -1172,6 +1172,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
+
+    /* smem cron add by zx */
+    run_with_period(5000) {
+        serverLog(LL_WARNING,"free the share memory that long time no need. ");
+    }
+
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&

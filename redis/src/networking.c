@@ -824,6 +824,8 @@ void freeClient(client *c) {
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);
+
+    smempubsubUnsubscribeAllChannels(c,0); // add by zx for smem
     dictRelease(c->pubsub_channels);
     dictRelease(c->smempubsub_channels); // add by zx for smem
     listRelease(c->pubsub_patterns);

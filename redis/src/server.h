@@ -1492,11 +1492,12 @@ int smemListMatch(void *a, void *b);
 
 
 /* Commands prototypes */
-void smemgetCommand(client *c);
+void smemgetCommand(client *c);   // add by zx for smem
 void smemfreeCommand(client *c);
 void smemrmCommand(client *c);
 void smempublishCommand(client *c);
-void smemsubscribeCommand(client *c);
+void smemsubscribeCommand(client *c);   
+int  smempubsubUnsubscribeAllChannels(client *c, int notify);
 
 void authCommand(client *c);
 void pingCommand(client *c);
