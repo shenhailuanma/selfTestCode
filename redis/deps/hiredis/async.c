@@ -592,7 +592,8 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     cstr += pvariant;
     clen -= pvariant;
 
-    if (hasnext && (strncasecmp(cstr,"subscribe\r\n",11) == 0 || strncasecmp(cstr,"smemsubscribe\r\n",15) == 0)) {
+    // modify by zx for smem
+    if (hasnext && (strncasecmp(cstr,"subscribe\r\n",11) == 0 || strncasecmp(cstr,"smemsubscribe\r\n",15) == 0)) {  
         c->flags |= REDIS_SUBSCRIBED;
 
         /* Add every channel/pattern to the list of subscription callbacks. */

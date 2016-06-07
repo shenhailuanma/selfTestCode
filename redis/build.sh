@@ -53,3 +53,9 @@ popd
 
 gcc -o ${release_dir}/bin/producer ${current_dir}/test/producer.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a
 gcc -o ${release_dir}/bin/consumer ${current_dir}/test/consumer.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a -levent -lpthread
+
+
+gcc -o ${release_dir}/bin/producer_smem ${current_dir}/test/producer_smem.c  ${current_dir}/test/smem_client.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a -levent -lpthread
+gcc -o ${release_dir}/bin/consumer_smem ${current_dir}/test/consumer_smem.c  ${current_dir}/test/smem_client.c -I${build_dir}/redis-3.2.0/deps/hiredis  ${build_dir}/redis-3.2.0/deps/hiredis/libhiredis.a -levent -lpthread
+
+

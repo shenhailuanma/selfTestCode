@@ -1174,9 +1174,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 
     /* smem cron add by zx */
-    run_with_period(5000) {
-        serverLog(LL_WARNING,"free the share memory that long time no need. ");
-    }
+    //run_with_period(5000) {
+    //    serverLog(LL_WARNING,"free the share memory that long time no need, the total_system_mem=%lu. ", server.system_memory_size);
+    //}
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
