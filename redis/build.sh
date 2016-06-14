@@ -48,6 +48,13 @@ pushd ${build_dir}
     make PREFIX=${release_dir}
     make PREFIX=${release_dir} install
     popd
+
+
+    pushd redis-3.2.0/deps/hiredis
+    make PREFIX=${release_dir}
+    make PREFIX=${release_dir} install
+    popd
+
 popd
 
 

@@ -64,7 +64,7 @@ void smemFree(struct smemContext * c)
     free(c);
 }
 
-int smemProducerGetShareMemory(struct smemContext * c, int size)
+static int smemProducerGetShareMemory(struct smemContext * c, int size)
 {
     int mem_id = -1;
     redisReply *reply;
@@ -89,7 +89,7 @@ int smemProducerGetShareMemory(struct smemContext * c, int size)
 }
 
 
-int smemConsumerGetShareMemory(struct smemContext * c)
+static int smemConsumerGetShareMemory(struct smemContext * c)
 {
     int mem_id = -1;
 
@@ -188,7 +188,7 @@ struct smemContext * smemCreateProducer(const char *ip, int port, const char *na
 }
 
 
-void subCallback(redisAsyncContext *c, void *r, void *priv) {
+static void subCallback(redisAsyncContext *c, void *r, void *priv) {
     redisReply *reply = r;
 
     struct smemContext *ctx = priv;
@@ -239,7 +239,7 @@ void subCallback(redisAsyncContext *c, void *r, void *priv) {
     //redisAsyncDisconnect(c);
 }
 
-void connectCallback(const redisAsyncContext *c, int status) {
+static void connectCallback(const redisAsyncContext *c, int status) {
     if (status != REDIS_OK) {
         printf("Error: %s\n", c->errstr);
         return;
@@ -247,7 +247,7 @@ void connectCallback(const redisAsyncContext *c, int status) {
     printf("Connected...\n");
 }
 
-void disconnectCallback(const redisAsyncContext *c, int status) {
+static void disconnectCallback(const redisAsyncContext *c, int status) {
     if (status != REDIS_OK) {
         printf("Error: %s\n", c->errstr);
         return;
@@ -255,7 +255,7 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
     printf("Disconnected...\n");
 }
 
-void * smemAsyncThread(void * h)
+static void * smemAsyncThread(void * h)
 {
     struct smemContext *c = h;
 

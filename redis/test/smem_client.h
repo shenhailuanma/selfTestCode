@@ -1,3 +1,11 @@
+#ifndef SMEM_CLIENT_H
+#define SMEM_CLIENT_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,3 +74,8 @@ void smemFreeShareMemory(struct smemContext * c, int id);
 // publish the share memory
 void smemPublish(struct smemContext * c, int id);
 
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif

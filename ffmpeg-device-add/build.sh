@@ -31,12 +31,20 @@ pushd ${build_dir}
     tar xf ffmpeg-3.0.2.tar.gz
 
     # copy the files to ffmpeg 
+    cp -rf ${current_dir}/src/ffmpeg-3.0.2/configure                    ${build_dir}/ffmpeg-3.0.2
     cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/Makefile         ${build_dir}/ffmpeg-3.0.2/libavdevice
     cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/alldevices.c     ${build_dir}/ffmpeg-3.0.2/libavdevice
-    cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/testdev.c        ${build_dir}/ffmpeg-3.0.2/libavdevice   
+    cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_dec.c       ${build_dir}/ffmpeg-3.0.2/libavdevice   
+    cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_dec.h       ${build_dir}/ffmpeg-3.0.2/libavdevice
+
+    cp -rf ${current_dir}/../redis/test/smem_client.c                   ${build_dir}/ffmpeg-3.0.2/libavdevice
+    cp -rf ${current_dir}/../redis/test/smem_client.h                   ${build_dir}/ffmpeg-3.0.2/libavdevice
+
 
     pushd ffmpeg-3.0.2
-    ./configure --prefix=${release_dir}
+    ./configure --prefix=${release_dir} --enable-gpl --enable-static --enable-nonfree --enable-version3 \
+--extra-cflags="-I${current_dir}/../redis/_release/include/hiredis -I${current_dir}/../redis/_release/include" \
+--extra-ldflags="-L${current_dir}/../redis/_release/lib -levent -lm -lpthread -lrt -ldl -lhiredis" --extra-libs=-lhiredis
     make
     make install
     popd
