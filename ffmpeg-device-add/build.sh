@@ -36,7 +36,8 @@ pushd ${build_dir}
     cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/alldevices.c     ${build_dir}/ffmpeg-3.0.2/libavdevice
     cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_dec.c       ${build_dir}/ffmpeg-3.0.2/libavdevice   
     cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_dec.h       ${build_dir}/ffmpeg-3.0.2/libavdevice
-
+    cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_enc.c       ${build_dir}/ffmpeg-3.0.2/libavdevice   
+    cp -rf ${current_dir}/src/ffmpeg-3.0.2/libavdevice/smem_enc.h       ${build_dir}/ffmpeg-3.0.2/libavdevice
     cp -rf ${current_dir}/../redis/test/smem_client.c                   ${build_dir}/ffmpeg-3.0.2/libavdevice
     cp -rf ${current_dir}/../redis/test/smem_client.h                   ${build_dir}/ffmpeg-3.0.2/libavdevice
 

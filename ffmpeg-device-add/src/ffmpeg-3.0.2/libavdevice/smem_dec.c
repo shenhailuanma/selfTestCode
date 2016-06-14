@@ -88,7 +88,7 @@ ff_smem_read_header_error:
 
 static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 {
-    av_log(avctx, AV_LOG_VERBOSE, "smem_read_packet\n");
+    av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet\n");
     struct smem_dec_ctx * ctx = avctx->priv_data;
 
     int packet_size, ret, width, height; 
@@ -99,11 +99,13 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
     if (packet_size < 0)
         return -1;
 
+    av_log(avctx, AV_LOG_VERBOSE, "packet_size: %d\n", packet_size);
 
     uint8_t *buffer = NULL;
     int mem_id = -1;
     uint8_t *mem_ptr = NULL;
 
+    int cnt = 0;
     while(1){
         // get memory 
         mem_id = smemGetShareMemory(ctx->sctx, 0);
@@ -117,23 +119,33 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
                 smemFreeShareMemory(ctx->sctx, mem_id);
                 return -1;
             }
+            av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
 
             av_init_packet(pkt);
 
+            av_log(avctx, AV_LOG_VERBOSE, "av_init_packet\n");
             buffer = av_malloc(packet_size);
+            av_log(avctx, AV_LOG_VERBOSE, "get memory buffer: %ld\n", buffer);
+
             memcpy(buffer, mem_ptr, packet_size);
+
+            av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
 
             pkt->data = buffer;
             pkt->size = packet_size;
 
             // free the memory id
             smemFreeShareMemory(ctx->sctx, mem_id);
+            av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
+
+            cnt = 0;
             break;
         }
 
         av_usleep(10000);
+        av_log(avctx, AV_LOG_VERBOSE, "av_usleep %d\n", cnt++);
     }
-    av_log(avctx, AV_LOG_VERBOSE, "smem_read_packet over\n");
+    av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet over\n");
     return 0;
 }
 

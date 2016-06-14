@@ -46,7 +46,7 @@ void avdevice_register_all(void)
     initialized = 1;
 
     /* devices */
-    //REGISTER_INOUTDEV(SMEM,          smem); // add by zhangxu
+    REGISTER_OUTDEV(SMEM,          smem); // add by zhangxu
     REGISTER_INDEV(SMEM,          smem); // add by zhangxu
     REGISTER_INOUTDEV(ALSA,             alsa);
     REGISTER_INDEV   (AVFOUNDATION,     avfoundation);
