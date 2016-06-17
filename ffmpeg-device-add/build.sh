@@ -45,7 +45,7 @@ pushd ${build_dir}
     pushd ffmpeg-3.0.2
     ./configure --prefix=${release_dir} --enable-gpl --enable-static --enable-nonfree --enable-version3 \
 --extra-cflags="-I${current_dir}/../redis/_release/include/hiredis -I${current_dir}/../redis/_release/include" \
---extra-ldflags="-L${current_dir}/../redis/_release/lib -levent -lm -lpthread -lrt -ldl -lhiredis" --extra-libs=-lhiredis
+--extra-ldflags="-L${current_dir}/../redis/_release/lib -levent -lm -lpthread -lrt -ldl " --extra-libs=-lhiredis
     make
     make install
     popd

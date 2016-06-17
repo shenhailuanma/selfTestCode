@@ -938,8 +938,10 @@ struct redisServer {
 
     /* share memory Pubsub */
     dict *smempubsub_channels; /* Map channels to list of subscribed clients , add by zx for smem */
-    list *smem_list;   /* add by zx for smem */
-
+    list *smem_list_used;   /* add by zx for smem */
+    list *smem_list_available;   /* add by zx for smem */
+    int  share_memory_size; /* add by zx for smem */
+    int  share_memory_limit;  /* The max size of the share memory used, add by zx for smem */
 
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
@@ -1485,6 +1487,7 @@ struct smem_t {
     unsigned int    mode; 
     int     state; /* the share memory state, define by SMEM_T_STATE_XXX */
     int     cnt;
+    time_t  last_time;          /* last use time */
 };
 
 int smemListMatch(void *a, void *b);
@@ -1498,6 +1501,7 @@ void smemrmCommand(client *c);
 void smempublishCommand(client *c);
 void smemsubscribeCommand(client *c);   
 int  smempubsubUnsubscribeAllChannels(client *c, int notify);
+void smemFreeShareMemory(int timeout);
 
 void authCommand(client *c);
 void pingCommand(client *c);

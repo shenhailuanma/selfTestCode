@@ -1174,9 +1174,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 
     /* smem cron add by zx */
-    //run_with_period(5000) {
-    //    serverLog(LL_WARNING,"free the share memory that long time no need, the total_system_mem=%lu. ", server.system_memory_size);
-    //}
+    run_with_period(2000) {
+        serverLog(LL_WARNING,"free the share memory that long time no need, the total_system_mem=%lu, share_memory_size=%d, share_memory_limit=%d, smem_list_used=%u, smem_list_available=%u. ", 
+            server.system_memory_size, server.share_memory_size, server.share_memory_limit, server.smem_list_used->len, server.smem_list_available->len);
+
+        // free the share memory where long time use
+        smemFreeShareMemory(5);
+    }
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
@@ -1912,9 +1916,17 @@ void initServer(void) {
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
 
     server.smempubsub_channels = dictCreate(&keylistDictType,NULL);  // add by zx for smem
-    server.smem_list = listCreate(); // add by zx for smem
-    listSetFreeMethod(server.smem_list,zfree);        // add by zx for smem
-    listSetMatchMethod(server.smem_list,smemListMatch);  // add by zx for smem
+    server.smem_list_used = listCreate(); // add by zx for smem
+    listSetFreeMethod(server.smem_list_used, zfree);        // add by zx for smem
+    listSetMatchMethod(server.smem_list_used, smemListMatch);  // add by zx for smem
+    server.smem_list_available = listCreate(); // add by zx for smem
+    listSetFreeMethod(server.smem_list_available, zfree);        // add by zx for smem
+    listSetMatchMethod(server.smem_list_available, smemListMatch);  // add by zx for smem
+    server.share_memory_limit = server.system_memory_size/2;
+    server.share_memory_size = 0; // fixme: should be set by share memory used size
+
+
+
     
     server.cronloops = 0;
     server.rdb_child_pid = -1;

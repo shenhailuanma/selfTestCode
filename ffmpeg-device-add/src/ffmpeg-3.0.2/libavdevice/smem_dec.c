@@ -9,10 +9,47 @@
 #include "smem_dec.h"
 #include "smem_client.h"
 
+
+
+struct memory_info2 {
+    int index;  // stream index
+    int64_t pts;
+    int64_t dts;
+    int stream_info_offset;
+    int stream_info_number;
+    int data_offset;
+    int data_size;
+};
+
+struct stream_info2 {
+    int index; 
+
+    enum AVMediaType codec_type;
+    enum AVCodecID     codec_id;
+    AVRational time_base;
+
+    /* video */
+    int width;
+    int height;
+    enum AVPixelFormat pix_fmt;
+
+    /* audio */
+    int sample_rate; ///< samples per second
+    int channels;    ///< number of audio channels
+    enum AVSampleFormat sample_fmt;  ///< sample format
+
+    /* other stream not support yet */
+};
+
+
 struct smem_dec_ctx {
     const AVClass *class;
 
     struct smemContext * sctx;
+
+    int stream_number;
+    struct stream_info2 * stream_infos;
+    int stream_info_size;
 
     /* Params */
     char ip[64];    /* the share memory server ip address */
@@ -25,6 +62,66 @@ struct smem_dec_ctx {
     /* Options */
 };
 
+
+static int get_stream_info(AVFormatContext *avctx)
+{
+    struct smem_dec_ctx * ctx = avctx->priv_data;
+    struct memory_info2 * m_info;
+
+    int mem_id = -1;
+    uint8_t *mem_ptr = NULL;
+    int ret;
+
+
+    while(1){
+        // to get one share memory
+        mem_id = smemGetShareMemory(ctx->sctx, 0);
+        if(mem_id > 0){
+            av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
+
+            // get the memory ptr
+            mem_ptr = shmat(mem_id, 0, 0);
+            if(mem_ptr == (void *)-1){
+                av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error.\n", mem_id);
+                smemFreeShareMemory(ctx->sctx, mem_id);
+                return -1;
+            }
+            av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
+
+            
+            // get stream info
+            m_info = (struct memory_info2 * )mem_ptr;
+            ctx->stream_number = m_info->stream_info_number;
+
+            ctx->stream_info_size = ctx->stream_number * sizeof(struct stream_info2);
+            ctx->stream_infos = av_malloc(ctx->stream_info_size);
+
+            memcpy(ctx->stream_infos, mem_ptr + m_info->stream_info_offset, m_info->stream_info_number * sizeof(struct stream_info2));
+
+            // fixme: the data should be save
+
+            // free the share memory 
+            if(mem_ptr){
+                ret = shmdt(mem_ptr);
+                if(ret < 0){
+                    av_log(avctx, AV_LOG_ERROR, "release share memory ptr error:%d\n", ret);
+                    return -1;
+                }
+            }
+
+            // free the memory id
+            smemFreeShareMemory(ctx->sctx, mem_id);
+            av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
+
+            break;
+        }
+        else{
+            av_usleep(1);
+            // fixme: should be add timeout
+        }
+    }
+    return 0;
+}
 
 av_cold static int ff_smem_read_header(AVFormatContext *avctx)
 {
@@ -51,30 +148,68 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
     }
 
     /* get the stream info */
+    get_stream_info(avctx);
 
     /* create the streams */
+    int i = 0;
+    struct stream_info2 * stream_info;
 
-    // add video stream
-    stream = avformat_new_stream(avctx, NULL);
-    if (!stream) {
-        av_log(avctx, AV_LOG_ERROR, "Cannot add stream\n");
-        goto ff_smem_read_header_error;
+    for(i = 0; i < ctx->stream_number; i++){
+
+        stream_info = &ctx->stream_infos[i];
+
+        if(stream_info->codec_type == AVMEDIA_TYPE_VIDEO){
+            av_log(avctx, AV_LOG_VERBOSE, "stream %d is video stream\n", i);
+
+            // add video stream
+            stream = avformat_new_stream(avctx, NULL);
+            if (!stream) {
+                av_log(avctx, AV_LOG_ERROR, "Cannot add stream\n");
+                goto ff_smem_read_header_error;
+            }
+
+            stream->codec->codec_type  = AVMEDIA_TYPE_VIDEO;
+            stream->codec->codec_id    = stream_info->codec_id; 
+            stream->codec->time_base.den      = stream_info->time_base.den;
+            stream->codec->time_base.num      = stream_info->time_base.num;
+
+            stream->codec->pix_fmt     = stream_info->pix_fmt;
+            stream->codec->width       = stream_info->width;
+            stream->codec->height      = stream_info->height;
+
+            av_log(avctx, AV_LOG_VERBOSE, "codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d \n", 
+                stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height);
+
+            //stream->codec->bit_rate    = av_image_get_buffer_size(stream->codec->pix_fmt, ctx->width, ctx->height, 1) * 1/av_q2d(stream->codec->time_base) * 8;
+        }
+        else if(stream_info->codec_type == AVMEDIA_TYPE_AUDIO){
+            av_log(avctx, AV_LOG_VERBOSE, "stream %d is audio stream\n", i);
+
+            // add video stream
+            stream = avformat_new_stream(avctx, NULL);
+            if (!stream) {
+                av_log(avctx, AV_LOG_ERROR, "Cannot add stream\n");
+                goto ff_smem_read_header_error;
+            }
+
+            stream->codec->codec_type  = AVMEDIA_TYPE_AUDIO;
+            stream->codec->codec_id    = stream_info->codec_id; 
+            stream->codec->time_base.den      = stream_info->time_base.den;
+            stream->codec->time_base.num      = stream_info->time_base.num;
+
+            stream->codec->sample_rate   = stream_info->sample_rate;
+            stream->codec->channels      = stream_info->channels;
+            stream->codec->sample_fmt    = stream_info->sample_fmt;
+
+            av_log(avctx, AV_LOG_VERBOSE, "codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d \n", 
+                stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, stream_info->channels, stream_info->sample_fmt);
+
+        }else{
+            av_log(avctx, AV_LOG_ERROR,"not support the type:%d\n", stream_info->codec_type);
+        }
     }
 
-    ctx->width = 1920;
-    ctx->height= 1080;
 
-    stream->codec->codec_type  = AVMEDIA_TYPE_VIDEO;
-    stream->codec->width       = ctx->width;
-    stream->codec->height      = ctx->height;
-    stream->codec->time_base.den      = 25;
-    stream->codec->time_base.num      = 1;
-
-        stream->codec->codec_id    = AV_CODEC_ID_RAWVIDEO; // fixme: should auto set
-        stream->codec->pix_fmt     = AV_PIX_FMT_YUV420P;  // fixme: should auto set
-        stream->codec->codec_tag   = MKTAG('I','4','2','0');
-
-    stream->codec->bit_rate    = av_image_get_buffer_size(stream->codec->pix_fmt, ctx->width, ctx->height, 1) * 1/av_q2d(stream->codec->time_base) * 8;
 
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_header over\n");
 
@@ -95,17 +230,15 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     AVStream *st = avctx->streams[0];
 
-    packet_size = avpicture_get_size(st->codec->pix_fmt, ctx->width, ctx->height);
-    if (packet_size < 0)
-        return -1;
 
-    av_log(avctx, AV_LOG_VERBOSE, "packet_size: %d\n", packet_size);
-
-    uint8_t *buffer = NULL;
+    static uint8_t *buffer = NULL;
     int mem_id = -1;
     uint8_t *mem_ptr = NULL;
+    struct memory_info2 * m_info;
+
 
     int cnt = 0;
+    av_init_packet(pkt);
     while(1){
         // get memory 
         mem_id = smemGetShareMemory(ctx->sctx, 0);
@@ -117,22 +250,40 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             if(mem_ptr == (void *)-1){
                 av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error.\n", mem_id);
                 smemFreeShareMemory(ctx->sctx, mem_id);
-                return -1;
+                av_usleep(1);
+                continue;
             }
             av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
-
+            m_info = (struct memory_info2 * )mem_ptr;
+            
             av_init_packet(pkt);
 
-            av_log(avctx, AV_LOG_VERBOSE, "av_init_packet\n");
-            buffer = av_malloc(packet_size);
-            av_log(avctx, AV_LOG_VERBOSE, "get memory buffer: %ld\n", buffer);
+            av_log(avctx, AV_LOG_VERBOSE, "data_size: %d\n", m_info->data_size);
 
-            memcpy(buffer, mem_ptr, packet_size);
+            av_new_packet(pkt, m_info->data_size);
+            pkt->stream_index = m_info->index;
+            pkt->pts = m_info->pts;
+            pkt->dts = m_info->pts;
+
+            av_log(avctx, AV_LOG_VERBOSE, "get memory pkt->data: %ld\n", pkt->data);
+
+            memcpy(pkt->data, mem_ptr + m_info->data_offset, m_info->data_size);
 
             av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
 
-            pkt->data = buffer;
-            pkt->size = packet_size;
+
+            
+
+
+            // free the share memory 
+            if(mem_ptr){
+                ret = shmdt(mem_ptr);
+                if(ret < 0){
+                    av_log(avctx, AV_LOG_ERROR, "release share memory ptr error:%d\n", ret);
+                    //return -1;
+                    continue;
+                }
+            }
 
             // free the memory id
             smemFreeShareMemory(ctx->sctx, mem_id);
@@ -141,9 +292,9 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             cnt = 0;
             break;
         }
-
-        av_usleep(10000);
-        av_log(avctx, AV_LOG_VERBOSE, "av_usleep %d\n", cnt++);
+        //return -1; // for test
+        av_usleep(1);
+        //av_log(avctx, AV_LOG_VERBOSE, "av_usleep %d\n", cnt++);
     }
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet over\n");
     return 0;
