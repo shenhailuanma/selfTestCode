@@ -101,6 +101,7 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].codec_type = AVMEDIA_TYPE_AUDIO;
             ctx->stream_infos[n].codec_id = c->codec_id;
             ctx->stream_infos[n].time_base = c->time_base;
+            //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
             ctx->stream_infos[n].sample_rate = c->sample_rate;
             ctx->stream_infos[n].channels = c->channels;
@@ -117,6 +118,7 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].codec_type = AVMEDIA_TYPE_VIDEO;
             ctx->stream_infos[n].codec_id = c->codec_id;
             ctx->stream_infos[n].time_base = c->time_base;
+            //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
             ctx->stream_infos[n].width = c->width;
             ctx->stream_infos[n].height = c->height;
@@ -193,7 +195,8 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
     // set the memory info
     struct memory_info * m_info = (struct memory_info * )mem_ptr;
     m_info->index = pkt->stream_index;
-    m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
+    //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
+    m_info->pts = pkt->pts; // fixme:
     m_info->stream_info_offset = sizeof(struct memory_info);
     m_info->stream_info_number = ctx->stream_number;
     m_info->data_offset = sizeof(struct memory_info) + ctx->stream_info_size;
@@ -208,6 +211,9 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
         ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, 1);
 
     
+    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
+        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
+
 
     // publish share memory id
     smemPublish(ctx->sctx, mem_id);   // publish the memory
@@ -267,7 +273,8 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     // set the memory info
     struct memory_info * m_info = (struct memory_info * )mem_ptr;
     m_info->index = pkt->stream_index;
-    m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
+    //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
+    m_info->pts = pkt->pts; // fixme:
     m_info->stream_info_offset = sizeof(struct memory_info);
     m_info->stream_info_number = ctx->stream_number;
     m_info->data_offset = sizeof(struct memory_info) + ctx->stream_info_size;
@@ -278,6 +285,10 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     // copy the video data 
     memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
+
+
+    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
+        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
 
     // publish share memory id
     smemPublish(ctx->sctx, mem_id);   // publish the memory

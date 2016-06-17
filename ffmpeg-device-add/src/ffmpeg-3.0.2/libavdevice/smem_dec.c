@@ -172,6 +172,8 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             stream->codec->codec_id    = stream_info->codec_id; 
             stream->codec->time_base.den      = stream_info->time_base.den;
             stream->codec->time_base.num      = stream_info->time_base.num;
+            //stream->codec->time_base = AV_TIME_BASE_Q;
+            stream->time_base = stream->codec->time_base;
 
             stream->codec->pix_fmt     = stream_info->pix_fmt;
             stream->codec->width       = stream_info->width;
@@ -196,6 +198,8 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             stream->codec->codec_id    = stream_info->codec_id; 
             stream->codec->time_base.den      = stream_info->time_base.den;
             stream->codec->time_base.num      = stream_info->time_base.num;
+            //stream->codec->time_base = AV_TIME_BASE_Q;
+            stream->time_base = stream->codec->time_base;
 
             stream->codec->sample_rate   = stream_info->sample_rate;
             stream->codec->channels      = stream_info->channels;
@@ -243,7 +247,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
         // get memory 
         mem_id = smemGetShareMemory(ctx->sctx, 0);
         if(mem_id > 0){
-            av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
+            //av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
 
             // get the memory ptr
             mem_ptr = shmat(mem_id, 0, 0);
@@ -253,26 +257,24 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
                 av_usleep(1);
                 continue;
             }
-            av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
+            //av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
             m_info = (struct memory_info2 * )mem_ptr;
             
             av_init_packet(pkt);
 
-            av_log(avctx, AV_LOG_VERBOSE, "data_size: %d\n", m_info->data_size);
+            //av_log(avctx, AV_LOG_VERBOSE, "data_size: %d\n", m_info->data_size);
 
             av_new_packet(pkt, m_info->data_size);
             pkt->stream_index = m_info->index;
             pkt->pts = m_info->pts;
             pkt->dts = m_info->pts;
 
-            av_log(avctx, AV_LOG_VERBOSE, "get memory pkt->data: %ld\n", pkt->data);
+            av_log(avctx, AV_LOG_VERBOSE, "get memory packet, stream_index:%d, time_base:(%d,%d) pts:%lld, size:%d, data: %ld\n", 
+                pkt->stream_index, ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den, pkt->pts, pkt->size, pkt->data);
 
             memcpy(pkt->data, mem_ptr + m_info->data_offset, m_info->data_size);
 
-            av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
-
-
-            
+            //av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
 
 
             // free the share memory 
