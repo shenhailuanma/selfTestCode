@@ -83,6 +83,8 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
         ctx->stream_info_size = ctx->stream_number * sizeof(struct stream_info);
         ctx->stream_infos = av_malloc(ctx->stream_info_size);
 
+        memset(ctx->stream_infos, 0 , ctx->stream_info_size);
+
         if(!ctx->stream_infos){
             av_log(avctx, AV_LOG_ERROR, "av_malloc stream_info failed.\n");
             return AVERROR(ENOMEM);
@@ -117,6 +119,7 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].index = n;
             ctx->stream_infos[n].codec_type = AVMEDIA_TYPE_VIDEO;
             ctx->stream_infos[n].codec_id = c->codec_id;
+            //ctx->stream_infos[n].codec_id = AV_CODEC_ID_RAWVIDEO;
             ctx->stream_infos[n].time_base = c->time_base;
             //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
@@ -162,7 +165,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
     struct smem_enc_ctx * ctx = avctx->priv_data;
 
     AVPicture *avpicture = (AVPicture *) pkt->data;
-    AVFrame *avframe, *tmp;
+
     int mem_id = -1;
     uint8_t *mem_ptr = NULL;
     int ret;
@@ -188,7 +191,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
         memset(mem_ptr, 0, mem_size);
 
     }else{
-        printf("get memory failed...\n");
+        av_log(avctx, AV_LOG_ERROR,"get memory failed...\n");
         return 0;  // fixme: should retry to get memory
     }
 
@@ -205,14 +208,20 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
     // copy the streams info
     memcpy(mem_ptr+m_info->stream_info_offset, ctx->stream_infos, ctx->stream_info_size);
 
-    // copy the video data 
-    av_image_copy_to_buffer(mem_ptr + m_info->data_offset, 
-        pic_size, (const uint8_t **)pkt->data, avpicture->linesize, ctx->stream_infos[pkt->stream_index].pix_fmt, 
-        ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, 1);
+    //av_log(avctx, AV_LOG_ERROR,"linesize[0]=%d, linesize[1]=%d, linesize[2]=%d, width=%d, height=%d, pix_fmt=%d,\n", 
+    //    avpicture->linesize[0], avpicture->linesize[1], avpicture->linesize[2], 
+    //    ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, ctx->stream_infos[pkt->stream_index].pix_fmt);
 
+    // copy the video data 
+    //ret = av_image_copy_to_buffer(mem_ptr + m_info->data_offset, 
+    //    pic_size, (const uint8_t **)pkt->data, avpicture->linesize, ctx->stream_infos[pkt->stream_index].pix_fmt, 
+    //    ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, 1);
+
+    memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
     
-    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
-        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
+    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d), stream_info_offset=%d, data_offset=%d, data_size=%d, ret=%d.\n", pkt->stream_index, m_info->pts, 
+        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den,
+        m_info->stream_info_offset, m_info->data_offset, m_info->data_size, ret);
 
 
     // publish share memory id
@@ -229,18 +238,17 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     
     // free share memory id
-    smemFreeShareMemory(ctx->sctx, mem_id); // free the memory
+    smemFreeShareMemory(ctx->sctx, mem_id); // free the share memory
 
     return 0;
 }
 
 static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
 {
+
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_audio_packet\n");
     struct smem_enc_ctx * ctx = avctx->priv_data;
 
-    AVPicture *avpicture = (AVPicture *) pkt->data;
-    AVFrame *avframe, *tmp;
     int mem_id = -1;
     uint8_t *mem_ptr = NULL;
     int ret;
@@ -283,7 +291,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     // copy the streams info
     memcpy(mem_ptr+m_info->stream_info_offset, ctx->stream_infos, ctx->stream_info_size);
 
-    // copy the video data 
+    // copy the audio data 
     memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
 
 
@@ -343,7 +351,7 @@ static const AVClass smem_muxer_class = {
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
-    .category   = AV_CLASS_CATEGORY_DEVICE_VIDEO_OUTPUT,
+    .category   = AV_CLASS_CATEGORY_DEVICE_OUTPUT,
 };
 
 
@@ -353,7 +361,7 @@ AVOutputFormat ff_smem_muxer = {
     .audio_codec    = AV_CODEC_ID_PCM_S16LE,
     .video_codec    = AV_CODEC_ID_RAWVIDEO,
     .subtitle_codec = AV_CODEC_ID_NONE,
-    .flags          = AVFMT_NOFILE | AVFMT_RAWPICTURE,
+    .flags          = AVFMT_NOFILE ,
     .priv_class     = &smem_muxer_class,
     .priv_data_size = sizeof(struct smem_enc_ctx),
     .write_header   = ff_smem_write_header,

@@ -60,8 +60,12 @@ struct smem_dec_ctx {
     int height;
 
     /* Options */
+
+    /* test */
+    FILE * yuv_file;
 };
 
+#define TEST_FILE_OUT "/root/video_out.yuv"
 
 static int get_stream_info(AVFormatContext *avctx)
 {
@@ -96,7 +100,8 @@ static int get_stream_info(AVFormatContext *avctx)
             ctx->stream_info_size = ctx->stream_number * sizeof(struct stream_info2);
             ctx->stream_infos = av_malloc(ctx->stream_info_size);
 
-            memcpy(ctx->stream_infos, mem_ptr + m_info->stream_info_offset, m_info->stream_info_number * sizeof(struct stream_info2));
+
+            memcpy(ctx->stream_infos, mem_ptr + m_info->stream_info_offset, ctx->stream_info_size);
 
             // fixme: the data should be save
 
@@ -214,6 +219,12 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
     }
 
 
+    #ifdef TEST_FILE_OUT
+        ctx->yuv_file = fopen(TEST_FILE_OUT, "w+");
+        if(ctx->yuv_file == NULL){
+            av_log(avctx, AV_LOG_ERROR,"open file:%s for test failed.\n", TEST_FILE_OUT);
+        }
+    #endif 
 
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_header over\n");
 
@@ -268,14 +279,30 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             pkt->stream_index = m_info->index;
             pkt->pts = m_info->pts;
             pkt->dts = m_info->pts;
+            pkt->flags |= AV_PKT_FLAG_KEY;
+            
+            ret = memcpy(pkt->data, mem_ptr + m_info->data_offset, m_info->data_size);
+            /*
+            if(ctx->stream_infos[pkt->stream_index].codec_type == AVMEDIA_TYPE_AUDIO)
+                ret = memcpy(pkt->data, mem_ptr + m_info->data_offset, m_info->data_size);
+            else{
+                AVPicture *avpicture = (AVPicture *) pkt->data;
 
-            av_log(avctx, AV_LOG_VERBOSE, "get memory packet, stream_index:%d, time_base:(%d,%d) pts:%lld, size:%d, data: %ld\n", 
-                pkt->stream_index, ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den, pkt->pts, pkt->size, pkt->data);
-
-            memcpy(pkt->data, mem_ptr + m_info->data_offset, m_info->data_size);
+                ret = av_image_fill_arrays(avpicture->data, avpicture->linesize,
+                                    mem_ptr + m_info->data_offset, ctx->stream_infos[pkt->stream_index].pix_fmt,
+                                    ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, 1);
+            }
+            */
+            av_log(avctx, AV_LOG_ERROR, "get memory packet, stream_index:%d, time_base:(%d,%d) pts:%lld, size:%d, data: %ld, mem_ptr:%lld, data_offset:%d, data_size:%d, ret=%d \n", 
+                pkt->stream_index, ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den, pkt->pts, pkt->size, pkt->data,
+                mem_ptr, m_info->data_offset, m_info->data_size, ret);
 
             //av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
-
+            #ifdef TEST_FILE_OUT
+                if(ctx->yuv_file && ctx->stream_infos[pkt->stream_index].codec_type == AVMEDIA_TYPE_VIDEO){
+                    fwrite(pkt->data, m_info->data_size, 1, ctx->yuv_file);
+                }
+            #endif 
 
             // free the share memory 
             if(mem_ptr){
@@ -292,7 +319,9 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
 
             cnt = 0;
+
             break;
+        
         }
         //return -1; // for test
         av_usleep(1);
@@ -306,6 +335,15 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 av_cold static int ff_smem_read_close(AVFormatContext *avctx)
 {
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_close\n");
+    struct smem_dec_ctx * ctx = avctx->priv_data;
+
+    #ifdef TEST_FILE_OUT
+        if(ctx->yuv_file){
+            fclose(ctx->yuv_file);
+            ctx->yuv_file = NULL;
+        }
+    #endif 
+
     return 0;
 }
 
@@ -319,14 +357,14 @@ static const AVClass smem_demuxer_class = {
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
-    .category   = AV_CLASS_CATEGORY_DEVICE_VIDEO_INPUT,
+    .category   = AV_CLASS_CATEGORY_DEVICE_INPUT,
 };
 
 
 AVInputFormat ff_smem_demuxer = {
     .name           = "smem",
     .long_name      = NULL_IF_CONFIG_SMALL("Test smem input"),
-    .flags          = AVFMT_NOFILE | AVFMT_RAWPICTURE,
+    .flags          = AVFMT_NOFILE ,
     .priv_class     = &smem_demuxer_class,
     .priv_data_size = sizeof(struct smem_dec_ctx),
     .read_header   = ff_smem_read_header,
