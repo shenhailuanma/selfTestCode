@@ -82,12 +82,18 @@ then
 
     rm -f ${release_dir}/lib/*.so*
 
+    #rm -rf ffmpeg-3.0.1
+
     if ! [ -e "ffmpeg-3.0.1" ]
     then
         tar xf ffmpeg-3.0.1.tar.gz
     fi
 
     cp -rf ${current_dir}/src/nvEncodeAPI.h ${release_dir}/include
+
+    cp -rf ${current_dir}/src/libavcodec/allcodecs.c     ${build_dir}/ffmpeg-3.0.1/libavcodec
+    cp -rf ${current_dir}/src/libavcodec/Makefile        ${build_dir}/ffmpeg-3.0.1/libavcodec  
+    cp -rf ${current_dir}/src/libavcodec/nvenc_dec.c     ${build_dir}/ffmpeg-3.0.1/libavcodec     
 
     pushd ffmpeg-3.0.1
     ./configure --prefix=${release_dir} --enable-static --enable-nonfree --enable-libfdk-aac --enable-nvenc \
@@ -97,7 +103,7 @@ then
     make
     make install
     popd
-    touch ffmpeg
+    #touch ffmpeg
     echo "########## ffmpeg ok ##########"
 else
     echo "########## ffmpeg has been installed ##########"
