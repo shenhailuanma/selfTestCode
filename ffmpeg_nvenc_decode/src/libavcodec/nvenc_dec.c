@@ -40,6 +40,7 @@ typedef int CUdevice;
 typedef void* CUcontext;
 typedef void *CUvideodecoder;
 typedef void *CUvideoparser;
+typedef void *CUstream;
 typedef struct _CUcontextlock_st *CUvideoctxlock;
 
 typedef enum cudaVideoCodec_enum {
@@ -537,20 +538,24 @@ typedef CUresult(CUDAAPI *PCUDEVICEGET)(CUdevice *device, int ordinal);
 typedef CUresult(CUDAAPI *PCUDEVICEGETNAME)(char *name, int len, CUdevice dev);
 typedef CUresult(CUDAAPI *PCUDEVICECOMPUTECAPABILITY)(int *major, int *minor, CUdevice dev);
 typedef CUresult(CUDAAPI *PCUCTXCREATE)(CUcontext *pctx, unsigned int flags, CUdevice dev);
-typedef CUresult(CUDAAPI *PCUCTXPOPCURRENT)(CUcontext *pctx);
+typedef CUresult(CUDAAPI *PCUCTXPUSHCURRENT)(CUcontext ctx);// cuCtxPushCurrent
+typedef CUresult(CUDAAPI *PCUCTXPOPCURRENT)(CUcontext *pctx); // cuCtxPopCurrent
 typedef CUresult(CUDAAPI *PCUCTXDESTROY)(CUcontext ctx);
 typedef CUresult(CUDAAPI *PCUMEMALLOCHOST)(void ** pp, size_t bytesize); 
 typedef CUresult(CUDAAPI *PCUMEMFREEHOST)(void * p);
 typedef CUresult(CUDAAPI *PCUSTREAMCREATE)(void ** phStream, unsigned int  Flags); // cuStreamCreate
 typedef CUresult(CUDAAPI *PCUSTREAMDESTROY)(void * phStream, unsigned int  Flags); // cuStreamDestroy
 typedef CUresult(CUDAAPI *PCUMEMCPYDTOHASYNC)(void* dstHost, CUdeviceptr srcDevice, size_t ByteCount, void * hStream);// cuMemcpyDtoHAsync
+typedef CUresult(CUDAAPI *PCUCTXPUSHCURRENT)(CUcontext ctx);// cuCtxPushCurrent
+
 
 
 typedef CUresult(CUDAAPI *PCUVIDCREATEDECODER)(CUvideodecoder *phDecoder, CUVIDDECODECREATEINFO *pdci); // cuvidCreateDecoder
 typedef CUresult(CUDAAPI *PCUVIDDESTROYDECODER)(CUvideodecoder hDecoder); // cuvidDestroyDecoder
-typedef CUresult(CUDAAPI *PCUVIDMAPVIDEOFRAME)(CUvideodecoder hDecoder, int nPicIdx,unsigned int *pDevPtr, 
+typedef CUresult(CUDAAPI *PCUVIDDECODEPICTURE)(CUvideodecoder hDecoder, CUVIDPICPARAMS *pPicParams);// cuvidDecodePicture
+typedef CUresult(CUDAAPI *PCUVIDMAPVIDEOFRAME)(CUvideodecoder hDecoder, int nPicIdx,CUdeviceptr *pDevPtr, 
                                                 unsigned int *pPitch, CUVIDPROCPARAMS *pVPP);   // cuvidMapVideoFrame
-typedef CUresult(CUDAAPI *PCUVIDUNMAPVIDEOFRAME)(CUvideodecoder hDecoder, unsigned int DevPtr); // cuvidUnmapVideoFrame
+typedef CUresult(CUDAAPI *PCUVIDUNMAPVIDEOFRAME)(CUvideodecoder hDecoder, CUdeviceptr DevPtr); // cuvidUnmapVideoFrame
 typedef CUresult(CUDAAPI *PCUVIDCTXLOCKCREATE)(CUvideoctxlock *pLock, CUcontext ctx); // cuvidCtxLockCreate
 typedef CUresult(CUDAAPI *PCUVIDCTXLOCKDESTROY)(CUvideoctxlock lck); // cuvidCtxLockDestroy
 typedef CUresult(CUDAAPI *PCUVIDCTXLOCK)(CUvideoctxlock lck, unsigned int reserved_flags); // cuvidCtxLock
@@ -607,6 +612,7 @@ typedef struct NvencDynLoadFunctions
     PCUDEVICEGETNAME            cu_device_get_name;
     PCUDEVICECOMPUTECAPABILITY  cu_device_compute_capability;
     PCUCTXCREATE                cu_ctx_create;
+    PCUCTXPUSHCURRENT           cu_ctx_push_current;
     PCUCTXPOPCURRENT            cu_ctx_pop_current;
     PCUCTXDESTROY               cu_ctx_destroy;
     PCUMEMALLOCHOST             cu_mem_alloc_host;
@@ -618,6 +624,7 @@ typedef struct NvencDynLoadFunctions
     // nvcuvid
     PCUVIDCREATEDECODER         cuvid_create_decoder;
     PCUVIDDESTROYDECODER        cuvid_destroy_decoder;
+    PCUVIDDECODEPICTURE         cuvid_decode_picture;
     PCUVIDCTXLOCKCREATE         cuvid_lock_create;
     PCUVIDCTXLOCKDESTROY        cuvid_lock_destroy;
     PCUVIDCTXLOCK               cuvid_lock;
@@ -654,6 +661,7 @@ typedef struct NvencDecContext {
 
     CUvideodecoder          h_decoder; // video decoder handle
     CUvideoparser           h_parser;  // video parser handle
+    CUstream                h_stream;
 
     CUVIDDECODECREATEINFO   video_decode_create_info; 
     cudaVideoCreateFlags    video_create_flags;
@@ -669,6 +677,8 @@ typedef struct NvencDecContext {
     CUdeviceptr  pDecodedFrame[2]; 
     unsigned char *pFrameYUV[4];
 
+    AVFrame tmp_frame; // fixme: 
+    int have_decoded_frames; // fixme: should delete after test
 
     /* Options */
     int gpu;
@@ -717,6 +727,7 @@ static av_cold int nvenc_dyload_cuda(AVCodecContext *avctx)
     CHECK_LOAD_FUNC(PCUDEVICECOMPUTECAPABILITY, dl_fn->cu_device_compute_capability, "cuDeviceComputeCapability");
     //CHECK_LOAD_FUNC(PCUCTXCREATE, dl_fn->cu_ctx_create, "cuCtxCreate");
     CHECK_LOAD_FUNC(PCUCTXCREATE, dl_fn->cu_ctx_create, "cuCtxCreate_v2");
+    CHECK_LOAD_FUNC(PCUCTXPUSHCURRENT, dl_fn->cu_ctx_push_current, "cuCtxPushCurrent_v2");
     CHECK_LOAD_FUNC(PCUCTXPOPCURRENT, dl_fn->cu_ctx_pop_current, "cuCtxPopCurrent_v2");
     CHECK_LOAD_FUNC(PCUCTXDESTROY, dl_fn->cu_ctx_destroy, "cuCtxDestroy_v2");
 
@@ -750,6 +761,14 @@ static av_cold int nvenc_decode_close(AVCodecContext *avctx)
 
     av_bitstream_filter_close(ctx->bsf);
 
+    // free the cu video decoder
+
+    // free the cu video parser
+
+    // free the cu memory
+
+
+
     return 0;
 }
 
@@ -776,8 +795,11 @@ static int CUDAAPI HandleVideoSequence(void *pUserData, CUVIDEOFORMAT *pFormat)
 static int CUDAAPI HandlePictureDecode(void *pUserData, CUVIDPICPARAMS *pPicParams)
 {
     NvencDecContext *ctx = (NvencDecContext *)pUserData;
+    NvencDynLoadFunctions *dl_fn = &ctx->nvenc_dload_funcs;
 
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDecode] begin\n");
+    CUresult oResult = dl_fn->cuvid_decode_picture(ctx->h_decoder, pPicParams);
+    av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDecode] cuvidDecodePicture return:%d\n", oResult);
 
     return 1;
 }
@@ -785,8 +807,49 @@ static int CUDAAPI HandlePictureDecode(void *pUserData, CUVIDPICPARAMS *pPicPara
 static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pPicParams)
 {
     NvencDecContext *ctx = (NvencDecContext *)pUserData;
+    NvencDynLoadFunctions *dl_fn = &ctx->nvenc_dload_funcs;
+
+    int ret;
+
+
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] begin\n");
 
+    av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] picture_index=%d, timestamp=%lld\n", pPicParams->picture_index, pPicParams->timestamp);
+
+    ret = dl_fn->cu_ctx_push_current(ctx->cu_context);
+    av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cu_ctx_push_current ret=%d\n", ret);
+
+    // map 
+    CUVIDPROCPARAMS oVideoProcessingParameters;
+    memset(&oVideoProcessingParameters, 0, sizeof(CUVIDPROCPARAMS));
+
+    oVideoProcessingParameters.progressive_frame = pPicParams->progressive_frame;
+    oVideoProcessingParameters.second_field      = 0;
+    oVideoProcessingParameters.top_field_first   = pPicParams->top_field_first;
+    oVideoProcessingParameters.unpaired_field    = 1;
+
+    unsigned int nDecodedPitch = 0;
+    unsigned int nWidth = 0;
+    unsigned int nHeight = 0;
+    CUdeviceptr  pDecodedFrame[2] = { 0, 0 };
+
+    //ret = dl_fn->cuvid_map_video_frame(ctx->h_decoder, pPicParams->picture_index, &ctx->pDecodedFrame[0], &nDecodedPitch, &oVideoProcessingParameters);
+    ret = dl_fn->cuvid_map_video_frame(ctx->h_decoder, pPicParams->picture_index, &pDecodedFrame[0], &nDecodedPitch, &oVideoProcessingParameters);
+    av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cuvid_map_video_frame ret=%d\n", ret);
+
+    // sync
+    //ret = dl_fn->cu_memcpy_dtoh_async(ctx->pFrameYUV[0], ctx->pDecodedFrame[0], );
+
+    // copy the data to frame
+
+    // unmap
+    //ret = dl_fn->cuvid_unmap_video_frame(ctx->h_decoder, ctx->pDecodedFrame[0]);
+    ret = dl_fn->cuvid_unmap_video_frame(ctx->h_decoder, pDecodedFrame[0]);
+    av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cuvid_unmap_video_frame ret=%d\n", ret);
+
+    ret = dl_fn->cu_ctx_pop_current(NULL);
+
+    ctx->have_decoded_frames = 1;
     return 1;
 }
 
@@ -897,6 +960,7 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 
     CHECK_LOAD_CUVID_FUNC(PCUVIDCREATEDECODER, dl_fn->cuvid_create_decoder, "cuvidCreateDecoder");
     CHECK_LOAD_CUVID_FUNC(PCUVIDDESTROYDECODER, dl_fn->cuvid_destroy_decoder, "cuvidDestroyDecoder");
+    CHECK_LOAD_CUVID_FUNC(PCUVIDDECODEPICTURE, dl_fn->cuvid_decode_picture, "cuvidDecodePicture");
     CHECK_LOAD_CUVID_FUNC(PCUVIDCTXLOCKCREATE, dl_fn->cuvid_lock_create, "cuvidCtxLockCreate");
     CHECK_LOAD_CUVID_FUNC(PCUVIDCTXLOCKDESTROY, dl_fn->cuvid_lock_destroy, "cuvidCtxLockDestroy");
     CHECK_LOAD_CUVID_FUNC(PCUVIDCTXLOCK, dl_fn->cuvid_lock, "cuvidCtxLock");
@@ -950,9 +1014,6 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     check_cuda_errors(dl_fn->cuvid_create_video_parser(&ctx->h_parser, &ctx->video_parser_params)); 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after create video parser.\n");
 
-    //CUresult oResult = cuvidCreateVideoParser(&hParser_, &oVideoParserParameters);
-
-
 
     // alloc the memory host
     check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 1920*1080*3/2)); // fixme: need cuMemFreeHost
@@ -961,6 +1022,10 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[3], 1920*1080*3/2));
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after alloc the memory host.\n");
+
+    // Create a Stream ID for handling Readback
+    check_cuda_errors(dl_fn->cu_stream_create(&ctx->h_stream, 0));
+    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after cu_stream_create.\n");
 
     // others
     if (avctx->codec_id == AV_CODEC_ID_H264)
@@ -983,25 +1048,107 @@ nvenc_decode_init_fail:
     return ret;
 }
 
+static void print_hex(unsigned char * data, int len)
+{
+    int i;
+
+    for(i = 0; i < len; i++)
+        printf("%2x ", data[i]);
+    printf("\n");
+}
+
 static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
                             int *got_frame, AVPacket *avpkt)
 {
     NvencDecContext *ctx = avctx->priv_data;
 
-    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame begin\n");
-
+    //av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame begin\n");
+    NvencDynLoadFunctions *dl_fn = &ctx->nvenc_dload_funcs;
 
     AVFrame *frame    = data;
     int ret;
+    int cu_ret;
+    uint8_t *p_filtered = NULL;
+    int      n_filtered = NULL;
+    AVPacket pkt_filtered = { 0 };
+
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame packet size=%d, stream_index=%d, pts=%lld, dts=%lld\n", 
         avpkt->size, avpkt->stream_index, avpkt->pts, avpkt->dts);
 
+    // get the picture that has been decoded
+    if(ctx->have_decoded_frames){
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame get frame\n");
+        //*got_frame = 1;
+    }
+
+    // fill the data to decode
+    if(avpkt->size > 0){
+        if (avpkt->size > 3 && !avpkt->data[0] &&
+            !avpkt->data[1] && !avpkt->data[2] && 1==avpkt->data[3]) {
+            /* we already have annex-b prefix */
+            av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame we already have annex-b prefix\n");
+
+        } else {
+            /* no annex-b prefix. try to restore: */
+            av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame no annex-b prefix. try to restore\n");
+
+            ret = av_bitstream_filter_filter(ctx->bsf, avctx, "private_spspps_buf",
+                                         &p_filtered, &n_filtered,
+                                         avpkt->data, avpkt->size, 0);
+            if (ret >= 0) {
+                pkt_filtered.pts  = avpkt->pts;
+                pkt_filtered.data = p_filtered;
+                pkt_filtered.size = n_filtered;
+
+                // fill the packet to video parser
+                CUVIDSOURCEDATAPACKET cu_pkt;
+                cu_pkt.flags = 0;
+                cu_pkt.payload_size = (unsigned long)pkt_filtered.size;
+                cu_pkt.payload = pkt_filtered.data;
+                cu_pkt.timestamp = pkt_filtered.pts;
+
+                cu_ret = dl_fn->cuvid_parse_video_data(ctx->h_parser, &cu_pkt);
+                av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame cuvid_parse_video_data cu_ret=%d\n", cu_ret);
+
+                if (p_filtered != avpkt->data)
+                    av_free(p_filtered);
+                return ret > 0 ? avpkt->size : ret;
+            }
+        }
+    }
+
+
+
+    /*
+
+    unsigned char * buffer = avpkt->data;
+    int data_size = avpkt->size;
+
+    print_hex(buffer, 10);
+    if((avpkt->flags & AV_PKT_FLAG_KEY) && (avctx->extradata_size > 0) ){
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame this is key frame, extradata_size=%d\n", avctx->extradata_size);
+        data_size += avctx->extradata_size;
+        buffer = av_malloc(data_size);
+        memcpy(buffer, avctx->extradata, avctx->extradata_size);
+        memcpy(buffer+avctx->extradata_size, avpkt->data, avpkt->size);
+        print_hex(buffer, 10+avctx->extradata_size);
+    }
+
+
+    static int frame_cnt = 0;
+    // fill the packet to video parser
+    CUVIDSOURCEDATAPACKET cu_pkt;
+    cu_pkt.flags = 0;
+    cu_pkt.payload_size = (unsigned long)data_size;
+    cu_pkt.payload = buffer;
+    cu_pkt.timestamp = avpkt->dts;
+
+    ret = dl_fn->cuvid_parse_video_data(ctx->h_parser, &cu_pkt);
+    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame cuvid_parse_video_data ret=%d\n", ret);
+    */
+
     ret = avpkt->size;  // fixme:
-
-
-
-
 
     return ret;
 }
