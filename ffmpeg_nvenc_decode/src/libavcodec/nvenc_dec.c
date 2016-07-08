@@ -930,7 +930,8 @@ static int CUDAAPI HandleVideoSequence(void *pUserData, CUVIDEOFORMAT *pFormat)
 {
     NvencDecContext *ctx = (NvencDecContext *)pUserData;
 
-    av_log(NULL, AV_LOG_VERBOSE, "[HandleVideoSequence] begin\n");
+    av_log(NULL, AV_LOG_INFO, "[HandleVideoSequence] codec=%d, coded_width=%d, coded_height=%d\n",
+        pFormat->codec, pFormat->coded_width, pFormat->coded_height);
 
     if ((pFormat->codec         != ctx->video_decode_create_info.CodecType)         // codec-type
         || (pFormat->coded_width   != ctx->video_decode_create_info.ulWidth)
@@ -1011,11 +1012,14 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
     nHeight = ctx->video_decode_create_info.ulHeight;
     nPicSize = nDecodedPitch * nHeight * 3 / 2; 
 
-    //ret = dl_fn->cu_memcpy_dtoh_async(ctx->pFrameYUV[0], pDecodedFrame[0], (nDecodedPitch * nHeight * 3 / 2), ctx->h_stream);
+    //ret = dl_fn->cu_memcpy_dtoh_async(ctx->pFrameYUV[0], pDecodedFrame[0], nPicSize, ctx->h_stream);
     ret = dl_fn->cu_memcpy_dtoh(ctx->pFrameYUV[0], pDecodedFrame[0], nPicSize);
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cu_memcpy_dtoh_async ret=%d, nDecodedPitch=%d, nHeight=%d ,stream=%lld, dest=%lld\n", 
             ret, nDecodedPitch, nHeight, ctx->h_stream, ctx->pFrameYUV[0]);
 
+    if(ret != 0){
+        av_log(NULL, AV_LOG_ERROR, "[HandlePictureDisplay] cu_memcpy_dtoh failed ret=%d\n", ret);
+    }
     // copy the data to frame
     /*
     print_hex(ctx->pFrameYUV[0], 30);
@@ -1196,23 +1200,32 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 
     // create cuda context
     ctx->cu_context = NULL;
-    check_cuda_errors(dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]));  // CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
+    check_cuda_errors(dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]));  //CU_CTX_SCHED_AUTO=0, CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
 
 
     /* to open the decoder */
     memset(&ctx->video_decode_create_info, 0, sizeof(ctx->video_decode_create_info));
     ctx->video_decode_create_info.CodecType = cudaVideoCodec_H264; // fixme: should support other codec in feature
-    ctx->video_decode_create_info.ulWidth   = avctx->width;
-    ctx->video_decode_create_info.ulHeight  = avctx->height;
-    ctx->video_decode_create_info.ulNumDecodeSurfaces = 6; // fixme
-    ctx->video_decode_create_info.ChromaFormat        = cudaVideoChromaFormat_420; // fixme
+    ctx->video_decode_create_info.ulWidth   = FFALIGN(avctx->width, 16);
+    ctx->video_decode_create_info.ulHeight  = FFALIGN(avctx->height, 16);
+    ctx->video_decode_create_info.ulNumDecodeSurfaces = 20; // fixme
+    // Limit decode memory to 24MB (16M pixels at 4:2:0 = 24M bytes)
+    // Keep atleast 6 DecodeSurfaces
+    while (ctx->video_decode_create_info.ulNumDecodeSurfaces > 6 && 
+        ctx->video_decode_create_info.ulNumDecodeSurfaces * ctx->video_decode_create_info.ulWidth * ctx->video_decode_create_info.ulHeight > 16 * 1024 * 1024)
+    {
+        ctx->video_decode_create_info.ulNumDecodeSurfaces--;
+    }
+    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init ulNumDecodeSurfaces=%d.\n", ctx->video_decode_create_info.ulNumDecodeSurfaces);
+
+    ctx->video_decode_create_info.ChromaFormat        = cudaVideoChromaFormat_420; 
     ctx->video_decode_create_info.OutputFormat        = cudaVideoSurfaceFormat_NV12;
-    ctx->video_decode_create_info.DeinterlaceMode     = cudaVideoDeinterlaceMode_Adaptive;
+    ctx->video_decode_create_info.DeinterlaceMode     = cudaVideoDeinterlaceMode_Weave; // cudaVideoDeinterlaceMode_Weave  cudaVideoDeinterlaceMode_Adaptive
 
     // No scaling
     ctx->video_decode_create_info.ulTargetWidth       = ctx->video_decode_create_info.ulWidth;
     ctx->video_decode_create_info.ulTargetHeight      = ctx->video_decode_create_info.ulHeight;
-    ctx->video_decode_create_info.ulNumOutputSurfaces = ctx->video_decode_create_info.ulNumDecodeSurfaces;  // fixme
+    ctx->video_decode_create_info.ulNumOutputSurfaces = 2;  // fixme
     ctx->video_decode_create_info.ulCreationFlags     = cudaVideoCreate_PreferCUVID; // fixme cudaVideoCreate_Default cudaVideoCreate_PreferCUVID cudaVideoCreate_PreferCUDA
 
     check_cuda_errors(dl_fn->cuvid_lock_create(&ctx->vid_ctx_lock, ctx->cu_context));
@@ -1240,8 +1253,8 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     ctx->pFrameYUV[1] = NULL;
     ctx->pFrameYUV[2] = NULL;
     ctx->pFrameYUV[3] = NULL;
-    check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 2048*1080*3/2)); // fixme: need cuMemFreeHost
-    check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[1], 2048*1080*3/2));
+    check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 2048*1088*3/2)); // fixme: need cuMemFreeHost
+    check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[1], 2048*1088*3/2));
     //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[2], 1920*1080*3/2));
     //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[3], 1920*1080*3/2));
 
@@ -1339,7 +1352,7 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
         if (avpkt->size > 3 && !avpkt->data[0] &&
             !avpkt->data[1] && !avpkt->data[2] && 1==avpkt->data[3]) {
             /* we already have annex-b prefix */
-            av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame we already have annex-b prefix\n");
+            av_log(avctx, AV_LOG_ERROR, "nvenc_decode_frame we already have annex-b prefix\n");
 
         } else {
             /* no annex-b prefix. try to restore: */
@@ -1357,7 +1370,7 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
                 // fill the packet to video parser
                 CUVIDSOURCEDATAPACKET cu_pkt;
                 cu_pkt.flags = CUVID_PKT_TIMESTAMP;
-                cu_pkt.payload_size = (unsigned long)pkt_filtered.size;
+                cu_pkt.payload_size = pkt_filtered.size;
                 cu_pkt.payload = pkt_filtered.data;
                 cu_pkt.timestamp = pkt_filtered.pts;
 
