@@ -607,6 +607,44 @@ typedef struct NvencDataList
     uint32_t size;
 } NvencDataList;
 
+
+/** 
+ * Return values for NVML API calls. 
+ */
+typedef enum nvmlReturn_enum 
+{
+    NVML_SUCCESS = 0,                   //!< The operation was successful
+    NVML_ERROR_UNINITIALIZED = 1,       //!< NVML was not first initialized with nvmlInit()
+    NVML_ERROR_INVALID_ARGUMENT = 2,    //!< A supplied argument is invalid
+    NVML_ERROR_NOT_SUPPORTED = 3,       //!< The requested operation is not available on target device
+    NVML_ERROR_NO_PERMISSION = 4,       //!< The current user does not have permission for operation
+    NVML_ERROR_ALREADY_INITIALIZED = 5, //!< Deprecated: Multiple initializations are now allowed through ref counting
+    NVML_ERROR_NOT_FOUND = 6,           //!< A query to find an object was unsuccessful
+    NVML_ERROR_INSUFFICIENT_SIZE = 7,   //!< An input argument is not large enough
+    NVML_ERROR_INSUFFICIENT_POWER = 8,  //!< A device's external power cables are not properly attached
+    NVML_ERROR_DRIVER_NOT_LOADED = 9,   //!< NVIDIA driver is not loaded
+    NVML_ERROR_TIMEOUT = 10,            //!< User provided timeout passed
+    NVML_ERROR_UNKNOWN = 999            //!< An internal driver error occurred
+} nvmlReturn_t;
+
+typedef void * nvmlDevice_t;
+
+/* Memory allocation information for a device. */
+typedef struct nvmlMemory_st 
+{
+    unsigned long long total;        //!< Total installed FB memory (in bytes)
+    unsigned long long free;         //!< Unallocated FB memory (in bytes)
+    unsigned long long used;         //!< Allocated FB memory (in bytes). Note that the driver/GPU always sets aside a small amount of memory for bookkeeping
+} nvmlMemory_t;
+
+typedef nvmlReturn_t(CUDAAPI *NVMLINIT)(void);  // nvmlInit
+typedef nvmlReturn_t(CUDAAPI *NVMLSHUTDOWN)(void);  // nvmlShutdown 
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETCOUNT)(unsigned int *deviceCount); // nvmlDeviceGetCount
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETHANDLEBYINDEX)(unsigned int index, nvmlDevice_t *device); // nvmlDeviceGetHandleByIndex
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETDECODERUTILIZATION)(nvmlDevice_t device, unsigned int *utilization,unsigned int *samplingPeriodUs); // nvmlDeviceGetDecoderUtilization
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETENCODERUTILIZATION)(nvmlDevice_t device, unsigned int *utilization,unsigned int *samplingPeriodUs); // nvmlDeviceGetEncoderUtilization 
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETMEMORYINFO)(nvmlDevice_t device, nvmlMemory_t *memory); // nvmlDeviceGetMemoryInfo
+
 typedef struct NvencDynLoadFunctions
 {
     PCUINIT cu_init;
@@ -639,6 +677,15 @@ typedef struct NvencDynLoadFunctions
     PCUVIDPARSEVIDEODATA        cuvid_parse_video_data;
     PCUVIDDESTROYVIDEOPARSER    cuvid_destroy_video_parser;
 
+
+    NVMLINIT                    nvml_init;
+    NVMLSHUTDOWN                nvml_shutdown;
+    NVMLDEVICEGETCOUNT          nvml_device_get_count;
+    NVMLDEVICEGETHANDLEBYINDEX  nvml_device_get_handle_by_index;
+    NVMLDEVICEGETDECODERUTILIZATION     nvml_device_get_decoder_utilization;
+    NVMLDEVICEGETENCODERUTILIZATION     nvml_device_get_encoder_utilization;
+    NVMLDEVICEGETMEMORYINFO     nvml_device_get_memory_info;
+
     NV_ENCODE_API_FUNCTION_LIST nvenc_funcs;
     int nvenc_device_count;
     CUdevice nvenc_devices[16];
@@ -647,10 +694,12 @@ typedef struct NvencDynLoadFunctions
     HMODULE cuda_lib;
     HMODULE nvenc_lib;
     HMODULE nvenc_dec_lib;
+    HMODULE nvml_lib;
 #else
     void* cuda_lib;
     void* nvenc_lib;
     void* nvenc_dec_lib;
+    void* nvml_lib;
 #endif
 } NvencDynLoadFunctions;
 
@@ -1230,7 +1279,14 @@ do { \
     } \
 } while (0)
 
-
+#define CHECK_LOAD_NVML_FUNC(t, f, s) \
+do { \
+    (f) = (t)LOAD_FUNC(dl_fn->nvml_lib, s); \
+    if (!(f)) { \
+        av_log(avctx, AV_LOG_FATAL, "Failed loading %s from NVML library\n", s); \
+        goto nvenc_decode_init_fail; \
+    } \
+} while (0)
 
 static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 {
@@ -1342,9 +1398,54 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after load libnvcuvid functions.\n");
 
 
+    // open the libnvidia-ml.so
+    #if defined(_WIN32)
+        if (sizeof(void*) == 8) {
+            dl_fn->nvml_lib = LoadLibrary(TEXT("nvidia-ml.dll"));
+        } else {
+            dl_fn->nvml_lib = LoadLibrary(TEXT("nvidia-ml.dll"));
+        }
+    #else
+        dl_fn->nvml_lib = dlopen("libnvidia-ml.so", RTLD_LAZY);
+    #endif
 
+    av_log(avctx, AV_LOG_INFO, "nvenc_decode_init after load libnvidia-ml.\n");
 
+    CHECK_LOAD_NVML_FUNC(NVMLINIT, dl_fn->nvml_init, "nvmlInit");
+    CHECK_LOAD_NVML_FUNC(NVMLSHUTDOWN, dl_fn->nvml_shutdown, "nvmlShutdown");
 
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETCOUNT, dl_fn->nvml_device_get_count, "nvmlDeviceGetCount");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETHANDLEBYINDEX, dl_fn->nvml_device_get_handle_by_index, "nvmlDeviceGetHandleByIndex");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETDECODERUTILIZATION, dl_fn->nvml_device_get_decoder_utilization, "nvmlDeviceGetDecoderUtilization");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETENCODERUTILIZATION, dl_fn->nvml_device_get_encoder_utilization, "nvmlDeviceGetEncoderUtilization");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETMEMORYINFO, dl_fn->nvml_device_get_memory_info, "nvmlDeviceGetMemoryInfo");
+
+    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after load libnvidia-ml functions.\n");
+
+    // get gpu info
+    check_cuda_errors(dl_fn->nvml_init());
+    unsigned int device_count = 0;
+    check_cuda_errors(dl_fn->nvml_device_get_count(&device_count));
+    av_log(avctx, AV_LOG_INFO, "nvenc_decode_init device_count:%u.\n", device_count);
+
+    nvmlDevice_t device_handel;
+    unsigned int utilization_value = 0;
+    unsigned int utilization_sample = 0;
+    nvmlMemory_t memory_info;
+    for(i = 0; i < device_count; i++){
+        check_cuda_errors(dl_fn->nvml_device_get_handle_by_index(i, &device_handel));
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, device_handel:%lld.\n", i, device_handel);
+        check_cuda_errors(dl_fn->nvml_device_get_decoder_utilization(device_handel, &utilization_value, &utilization_sample));
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, decoder_utilization:%u, utilization_sample:%u.\n", i, utilization_value, utilization_sample);
+        check_cuda_errors(dl_fn->nvml_device_get_encoder_utilization(device_handel, &utilization_value, &utilization_sample));
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, encoder_utilization:%u, utilization_sample:%u.\n", i, utilization_value, utilization_sample);
+
+        check_cuda_errors(dl_fn->nvml_device_get_memory_info(device_handel, &memory_info));
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, memory_info: total=%llu, free=%llu, used=%llu.\n", i, memory_info.total, memory_info.free, memory_info.used);
+
+    }
+
+    check_cuda_errors(dl_fn->nvml_shutdown());
 
     // create cuda context
     ctx->cu_context = NULL;
@@ -1388,6 +1489,9 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     ctx->h_stream = NULL;
     //check_cuda_errors(dl_fn->cu_stream_create(&ctx->h_stream, 0));
     //av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after cu_stream_create, stream=%ld.\n", ctx->h_stream);
+
+
+
 
     // others
     if (avctx->codec_id == AV_CODEC_ID_H264)
