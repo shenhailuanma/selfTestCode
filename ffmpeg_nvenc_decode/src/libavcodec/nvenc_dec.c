@@ -2,10 +2,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "libavutil/common.h"
 #include "libavutil/fifo.h"
 #include "libavutil/opt.h"
+#include "libavutil/time.h"
 
 #include "avcodec.h"
 #include "internal.h"
@@ -637,6 +639,17 @@ typedef struct nvmlMemory_st
     unsigned long long used;         //!< Allocated FB memory (in bytes). Note that the driver/GPU always sets aside a small amount of memory for bookkeeping
 } nvmlMemory_t;
 
+
+/* Information about running compute processes on the GPU */
+typedef struct nvmlProcessInfo_st
+{
+    unsigned int pid;                 //!< Process ID
+    unsigned long long usedGpuMemory; //!< Amount of used GPU memory in bytes.
+                                      //!< Under WDDM, \ref NVML_VALUE_NOT_AVAILABLE is always reported
+                                      //!< because Windows KMD manages all the memory and not the NVIDIA driver
+} nvmlProcessInfo_t;
+
+
 typedef nvmlReturn_t(CUDAAPI *NVMLINIT)(void);  // nvmlInit
 typedef nvmlReturn_t(CUDAAPI *NVMLSHUTDOWN)(void);  // nvmlShutdown 
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETCOUNT)(unsigned int *deviceCount); // nvmlDeviceGetCount
@@ -644,6 +657,8 @@ typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETHANDLEBYINDEX)(unsigned int index, nv
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETDECODERUTILIZATION)(nvmlDevice_t device, unsigned int *utilization,unsigned int *samplingPeriodUs); // nvmlDeviceGetDecoderUtilization
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETENCODERUTILIZATION)(nvmlDevice_t device, unsigned int *utilization,unsigned int *samplingPeriodUs); // nvmlDeviceGetEncoderUtilization 
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETMEMORYINFO)(nvmlDevice_t device, nvmlMemory_t *memory); // nvmlDeviceGetMemoryInfo
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETRUNNINGPROCESSES)(nvmlDevice_t device, unsigned int *infoCount,nvmlProcessInfo_t *infos);// nvmlDeviceGetComputeRunningProcesses
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETPPROCESSNAME)(unsigned int pid, char *name, unsigned int length); // nvmlSystemGetProcessName
 
 typedef struct NvencDynLoadFunctions
 {
@@ -685,6 +700,8 @@ typedef struct NvencDynLoadFunctions
     NVMLDEVICEGETDECODERUTILIZATION     nvml_device_get_decoder_utilization;
     NVMLDEVICEGETENCODERUTILIZATION     nvml_device_get_encoder_utilization;
     NVMLDEVICEGETMEMORYINFO     nvml_device_get_memory_info;
+    NVMLDEVICEGETRUNNINGPROCESSES       nvml_device_get_running_processes;
+    NVMLDEVICEGETPPROCESSNAME   nvml_device_get_process_name;
 
     NV_ENCODE_API_FUNCTION_LIST nvenc_funcs;
     int nvenc_device_count;
@@ -1044,10 +1061,37 @@ static av_cold int nvenc_decode_close(AVCodecContext *avctx)
     return 0;
 }
 
+static int get_suitable_gpu(void);
+
 static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
 {
     NvencDynLoadFunctions *dl_fn = &ctx->nvenc_dload_funcs;
     int ret ;
+
+    ctx->gpu = get_suitable_gpu();
+
+    // create cuda context
+    ctx->cu_context = NULL;
+    ret = dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]);  //CU_CTX_SCHED_AUTO=0, CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
+    if (ret != CUDA_SUCCESS) {
+        av_log(NULL, AV_LOG_FATAL, ">> cu_ctx_create - failed with error code %d\n", ret);
+        return -1;
+    }
+
+    // alloc the memory host
+    if(ctx->pFrameYUV[0] == NULL){
+        ret = dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 2048*1088*3/2); 
+        if (ret != CUDA_SUCCESS) {
+            av_log(NULL, AV_LOG_FATAL, ">> cu_mem_alloc_host - failed with error code %d\n", ret);
+            return -1;
+        }
+    }
+    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[1], 2048*1088*3/2));
+    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[2], 1920*1080*3/2));
+    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[3], 1920*1080*3/2));
+
+    av_log(NULL, AV_LOG_VERBOSE, "[nvenc_open_decoder] after alloc the memory host.\n");
+
 
     memset(&ctx->video_decode_create_info, 0, sizeof(ctx->video_decode_create_info));
     ctx->video_decode_create_info.CodecType = cudaVideoCodec_H264; // fixme: should support other codec in feature
@@ -1091,6 +1135,7 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
 
     return 0;   
 }
+
 
 
 static int CUDAAPI HandleVideoSequence(void *pUserData, CUVIDEOFORMAT *pFormat)
@@ -1281,12 +1326,141 @@ do { \
 
 #define CHECK_LOAD_NVML_FUNC(t, f, s) \
 do { \
-    (f) = (t)LOAD_FUNC(dl_fn->nvml_lib, s); \
+    (f) = (t)LOAD_FUNC(nvml_lib, s); \
     if (!(f)) { \
-        av_log(avctx, AV_LOG_FATAL, "Failed loading %s from NVML library\n", s); \
-        goto nvenc_decode_init_fail; \
+        av_log(NULL, AV_LOG_FATAL, "Failed loading %s from NVML library\n", s); \
+        goto get_suitable_gpu_fail; \
     } \
 } while (0)
+
+static av_cold int check_nvml_error(AVCodecContext *avctx, CUresult err, const char *func)
+{
+    if (err != CUDA_SUCCESS) {
+        av_log(avctx, AV_LOG_FATAL, ">> %s - failed with error code:%d\n", func, err);
+        return 0;
+    }
+    return 1;
+}
+#define check_nvml_errors(f) if (!check_nvml_error(NULL, f, #f)) goto get_suitable_gpu_fail
+
+static int get_suitable_gpu(void)
+{
+    void* nvml_lib;
+    NVMLINIT                    nvml_init;
+    NVMLSHUTDOWN                nvml_shutdown;
+    NVMLDEVICEGETCOUNT          nvml_device_get_count;
+    NVMLDEVICEGETHANDLEBYINDEX  nvml_device_get_handle_by_index;
+    NVMLDEVICEGETDECODERUTILIZATION     nvml_device_get_decoder_utilization;
+    NVMLDEVICEGETENCODERUTILIZATION     nvml_device_get_encoder_utilization;
+    NVMLDEVICEGETMEMORYINFO     nvml_device_get_memory_info;
+    NVMLDEVICEGETRUNNINGPROCESSES       nvml_device_get_running_processes;
+    NVMLDEVICEGETPPROCESSNAME   nvml_device_get_process_name;
+
+    nvmlDevice_t device_handel;
+    unsigned int utilization_value = 0;
+    unsigned int utilization_sample = 0;
+    int best_gpu = 0;
+    unsigned int decoder_used = 100;
+
+    // open the libnvidia-ml.so
+    #if defined(_WIN32)
+        if (sizeof(void*) == 8) {
+            nvml_lib = LoadLibrary(TEXT("nvidia-ml.dll"));
+        } else {
+            nvml_lib = LoadLibrary(TEXT("nvidia-ml.dll"));
+        }
+    #else
+        nvml_lib = dlopen("libnvidia-ml.so", RTLD_LAZY);
+    #endif
+
+    av_log(NULL, AV_LOG_VERBOSE, "[get_suitable_gpu] after load libnvidia-ml.\n");
+
+    CHECK_LOAD_NVML_FUNC(NVMLINIT, nvml_init, "nvmlInit");
+    CHECK_LOAD_NVML_FUNC(NVMLSHUTDOWN, nvml_shutdown, "nvmlShutdown");
+
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETCOUNT, nvml_device_get_count, "nvmlDeviceGetCount");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETHANDLEBYINDEX, nvml_device_get_handle_by_index, "nvmlDeviceGetHandleByIndex");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETDECODERUTILIZATION, nvml_device_get_decoder_utilization, "nvmlDeviceGetDecoderUtilization");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETENCODERUTILIZATION, nvml_device_get_encoder_utilization, "nvmlDeviceGetEncoderUtilization");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETMEMORYINFO, nvml_device_get_memory_info, "nvmlDeviceGetMemoryInfo");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETRUNNINGPROCESSES, nvml_device_get_running_processes, "nvmlDeviceGetComputeRunningProcesses");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETPPROCESSNAME, nvml_device_get_process_name, "nvmlSystemGetProcessName");
+
+    av_log(NULL, AV_LOG_VERBOSE, "[get_suitable_gpu] after load libnvidia-ml functions.\n");
+
+    // get gpu info
+    check_nvml_errors(nvml_init());
+    unsigned int device_count = 0;
+    check_nvml_errors(nvml_device_get_count(&device_count));
+    av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] device_count:%u.\n", device_count);
+
+
+
+    nvmlMemory_t memory_info;
+    unsigned int process_buf_size = 100;
+    nvmlProcessInfo_t process_buf[100];
+    char process_name[256];
+    int  min_processes = 1000;
+
+    unsigned int local_pid = getpid();
+    srand(local_pid);
+    //unsigned int sleep_time = rand()%200000 + rand()%300000 + rand()%500000; // random in 1 s
+    unsigned int sleep_time = rand()%1000000; // random in 1 s
+
+    av_log(NULL, AV_LOG_ERROR, "[get_suitable_gpu] sleep_time:%u.\n", sleep_time);
+    av_usleep(sleep_time); // sleep 
+
+    for(int i = 0; i < device_count; i++){
+        check_nvml_errors(nvml_device_get_handle_by_index(i, &device_handel));
+        //av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] sleep_time=%u, device:%d, device_handel:%lld.\n", sleep_time, i, device_handel);
+        check_nvml_errors(nvml_device_get_decoder_utilization(device_handel, &utilization_value, &utilization_sample));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, decoder_utilization:%u, utilization_sample:%u.\n", local_pid, i, utilization_value, utilization_sample);
+
+
+
+        check_nvml_errors(nvml_device_get_encoder_utilization(device_handel, &utilization_value, &utilization_sample));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, encoder_utilization:%u, utilization_sample:%u.\n", local_pid, i, utilization_value, utilization_sample);
+        //if(decoder_used >  utilization_value){
+        //    decoder_used = utilization_value;
+        //    best_gpu = i;
+        //}
+        check_nvml_errors(nvml_device_get_memory_info(device_handel, &memory_info));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, memory_info: total=%llu, free=%llu, used=%llu.\n", local_pid, i, memory_info.total, memory_info.free, memory_info.used);
+
+        // get processes info
+        process_buf_size = 100;
+        memset(process_buf, 0, sizeof(nvmlProcessInfo_t)*100);
+        memset(process_name, 0, sizeof(process_name));
+        check_nvml_errors(nvml_device_get_running_processes(device_handel, &process_buf_size, process_buf));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, process number:%u.\n", local_pid, i, process_buf_size);
+        if(process_buf_size < min_processes){
+            min_processes = process_buf_size;
+            best_gpu = i;
+        }
+
+        while(process_buf_size > 0){
+            process_buf_size--;
+
+            //check_nvml_errors(nvml_device_get_process_name(process_buf[process_buf_size].pid, process_name, sizeof(process_name)));
+            nvml_device_get_process_name(process_buf[process_buf_size].pid, process_name, sizeof(process_name));
+
+            av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, process id:%u, name:%s memory:%llu.\n", 
+                local_pid, i, process_buf[process_buf_size].pid, process_name, process_buf[process_buf_size].usedGpuMemory);
+        }
+
+
+
+
+    }
+    av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, get the best_gpu:%d.\n", local_pid, best_gpu);
+
+
+get_suitable_gpu_fail:
+
+    nvml_shutdown();
+
+    return best_gpu;
+}
 
 static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 {
@@ -1397,7 +1571,7 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after load libnvcuvid functions.\n");
 
-
+    /*
     // open the libnvidia-ml.so
     #if defined(_WIN32)
         if (sizeof(void*) == 8) {
@@ -1431,25 +1605,41 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     nvmlDevice_t device_handel;
     unsigned int utilization_value = 0;
     unsigned int utilization_sample = 0;
+    int best_gpu = 0;
+    unsigned int decoder_used = 100;
+
     nvmlMemory_t memory_info;
     for(i = 0; i < device_count; i++){
         check_cuda_errors(dl_fn->nvml_device_get_handle_by_index(i, &device_handel));
         av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, device_handel:%lld.\n", i, device_handel);
         check_cuda_errors(dl_fn->nvml_device_get_decoder_utilization(device_handel, &utilization_value, &utilization_sample));
         av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, decoder_utilization:%u, utilization_sample:%u.\n", i, utilization_value, utilization_sample);
+
+
+
         check_cuda_errors(dl_fn->nvml_device_get_encoder_utilization(device_handel, &utilization_value, &utilization_sample));
         av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, encoder_utilization:%u, utilization_sample:%u.\n", i, utilization_value, utilization_sample);
-
+        if(decoder_used >  utilization_value){
+            decoder_used = utilization_value;
+            best_gpu = i;
+        }
         check_cuda_errors(dl_fn->nvml_device_get_memory_info(device_handel, &memory_info));
         av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init device:%d, memory_info: total=%llu, free=%llu, used=%llu.\n", i, memory_info.total, memory_info.free, memory_info.used);
 
+
     }
+    av_log(avctx, AV_LOG_INFO, "nvenc_decode_init get the best_gpu:%d.\n", best_gpu);
+    ctx->gpu = best_gpu;
+
 
     check_cuda_errors(dl_fn->nvml_shutdown());
+    */
+
+    //ctx->gpu = get_suitable_gpu(avctx);
 
     // create cuda context
     ctx->cu_context = NULL;
-    check_cuda_errors(dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]));  //CU_CTX_SCHED_AUTO=0, CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
+    //check_cuda_errors(dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]));  //CU_CTX_SCHED_AUTO=0, CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
 
     
     /* the handle of decoder */
@@ -1472,18 +1662,20 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     ctx->parser_width  = 0;
     ctx->parser_height = 0;
 
-
+    
     // alloc the memory host
     ctx->pFrameYUV[0] = NULL;
     ctx->pFrameYUV[1] = NULL;
     ctx->pFrameYUV[2] = NULL;
     ctx->pFrameYUV[3] = NULL;
+    /*
     check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 2048*1088*3/2)); 
     check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[1], 2048*1088*3/2));
     //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[2], 1920*1080*3/2));
     //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[3], 1920*1080*3/2));
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after alloc the memory host.\n");
+    */
 
     // Create a Stream ID for handling Readback
     ctx->h_stream = NULL;
