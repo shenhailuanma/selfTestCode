@@ -537,17 +537,17 @@ typedef struct _CUVIDPARSERPARAMS
 typedef void * CUdeviceptr;
 
 
-typedef CUresult(CUDAAPI *PCUINIT)(unsigned int Flags);
-typedef CUresult(CUDAAPI *PCUDEVICEGETCOUNT)(int *count);
-typedef CUresult(CUDAAPI *PCUDEVICEGET)(CUdevice *device, int ordinal);
-typedef CUresult(CUDAAPI *PCUDEVICEGETNAME)(char *name, int len, CUdevice dev);
-typedef CUresult(CUDAAPI *PCUDEVICECOMPUTECAPABILITY)(int *major, int *minor, CUdevice dev);
-typedef CUresult(CUDAAPI *PCUCTXCREATE)(CUcontext *pctx, unsigned int flags, CUdevice dev);
+typedef CUresult(CUDAAPI *PCUINIT)(unsigned int Flags); // cuInit
+typedef CUresult(CUDAAPI *PCUDEVICEGETCOUNT)(int *count); // cuDeviceGetCount
+typedef CUresult(CUDAAPI *PCUDEVICEGET)(CUdevice *device, int ordinal); // cuDeviceGet
+typedef CUresult(CUDAAPI *PCUDEVICEGETNAME)(char *name, int len, CUdevice dev); // cuDeviceGetName
+typedef CUresult(CUDAAPI *PCUDEVICECOMPUTECAPABILITY)(int *major, int *minor, CUdevice dev); // cuDeviceComputeCapability
+typedef CUresult(CUDAAPI *PCUCTXCREATE)(CUcontext *pctx, unsigned int flags, CUdevice dev); // cuCtxCreate
 typedef CUresult(CUDAAPI *PCUCTXPUSHCURRENT)(CUcontext ctx);// cuCtxPushCurrent
 typedef CUresult(CUDAAPI *PCUCTXPOPCURRENT)(CUcontext *pctx); // cuCtxPopCurrent
-typedef CUresult(CUDAAPI *PCUCTXDESTROY)(CUcontext ctx);
-typedef CUresult(CUDAAPI *PCUMEMALLOCHOST)(void ** pp, size_t bytesize); 
-typedef CUresult(CUDAAPI *PCUMEMFREEHOST)(void * p);
+typedef CUresult(CUDAAPI *PCUCTXDESTROY)(CUcontext ctx); // cuCtxDestroy
+typedef CUresult(CUDAAPI *PCUMEMALLOCHOST)(void ** pp, size_t bytesize);  // cuMemAllocHost
+typedef CUresult(CUDAAPI *PCUMEMFREEHOST)(void * p); // cuMemFreeHost
 typedef CUresult(CUDAAPI *PCUSTREAMCREATE)(void ** phStream, unsigned int  Flags); // cuStreamCreate
 typedef CUresult(CUDAAPI *PCUSTREAMDESTROY)(void * phStream, unsigned int  Flags); // cuStreamDestroy
 typedef CUresult(CUDAAPI *PCUMEMCPYDTOHASYNC)(void* dstHost, CUdeviceptr srcDevice, size_t ByteCount, void * hStream);// cuMemcpyDtoHAsync
@@ -649,6 +649,12 @@ typedef struct nvmlProcessInfo_st
                                       //!< because Windows KMD manages all the memory and not the NVIDIA driver
 } nvmlProcessInfo_t;
 
+/* Utilization information for a device. */
+typedef struct nvmlUtilization_st 
+{
+    unsigned int gpu;                //!< Percent of time over the past second during which one or more kernels was executing on the GPU
+    unsigned int memory;             //!< Percent of time over the past second during which global (device) memory was being read or written
+} nvmlUtilization_t;
 
 typedef nvmlReturn_t(CUDAAPI *NVMLINIT)(void);  // nvmlInit
 typedef nvmlReturn_t(CUDAAPI *NVMLSHUTDOWN)(void);  // nvmlShutdown 
@@ -659,6 +665,9 @@ typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETENCODERUTILIZATION)(nvmlDevice_t devi
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETMEMORYINFO)(nvmlDevice_t device, nvmlMemory_t *memory); // nvmlDeviceGetMemoryInfo
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETRUNNINGPROCESSES)(nvmlDevice_t device, unsigned int *infoCount,nvmlProcessInfo_t *infos);// nvmlDeviceGetComputeRunningProcesses
 typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETPPROCESSNAME)(unsigned int pid, char *name, unsigned int length); // nvmlSystemGetProcessName
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETUTILIZATIONRATES)(nvmlDevice_t device, nvmlUtilization_t *utilization); // nvmlDeviceGetUtilizationRates
+typedef nvmlReturn_t(CUDAAPI *NVMLDEVICEGETTEMPERATURE)(nvmlDevice_t device, int sensorType, unsigned int *temp); // nvmlDeviceGetTemperature
+
 
 typedef struct NvencDynLoadFunctions
 {
@@ -702,6 +711,8 @@ typedef struct NvencDynLoadFunctions
     NVMLDEVICEGETMEMORYINFO     nvml_device_get_memory_info;
     NVMLDEVICEGETRUNNINGPROCESSES       nvml_device_get_running_processes;
     NVMLDEVICEGETPPROCESSNAME   nvml_device_get_process_name;
+    NVMLDEVICEGETUTILIZATIONRATES       nvml_device_get_utilization_rates;
+    NVMLDEVICEGETTEMPERATURE    nvml_device_get_temperature;
 
     NV_ENCODE_API_FUNCTION_LIST nvenc_funcs;
     int nvenc_device_count;
@@ -1355,6 +1366,8 @@ static int get_suitable_gpu(void)
     NVMLDEVICEGETMEMORYINFO     nvml_device_get_memory_info;
     NVMLDEVICEGETRUNNINGPROCESSES       nvml_device_get_running_processes;
     NVMLDEVICEGETPPROCESSNAME   nvml_device_get_process_name;
+    NVMLDEVICEGETUTILIZATIONRATES       nvml_device_get_utilization_rates;
+    NVMLDEVICEGETTEMPERATURE    nvml_device_get_temperature;
 
     nvmlDevice_t device_handel;
     unsigned int utilization_value = 0;
@@ -1385,6 +1398,9 @@ static int get_suitable_gpu(void)
     CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETMEMORYINFO, nvml_device_get_memory_info, "nvmlDeviceGetMemoryInfo");
     CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETRUNNINGPROCESSES, nvml_device_get_running_processes, "nvmlDeviceGetComputeRunningProcesses");
     CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETPPROCESSNAME, nvml_device_get_process_name, "nvmlSystemGetProcessName");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETUTILIZATIONRATES, nvml_device_get_utilization_rates, "nvmlDeviceGetUtilizationRates");
+    CHECK_LOAD_NVML_FUNC(NVMLDEVICEGETTEMPERATURE, nvml_device_get_temperature, "nvmlDeviceGetTemperature");
+
 
     av_log(NULL, AV_LOG_VERBOSE, "[get_suitable_gpu] after load libnvidia-ml functions.\n");
 
@@ -1401,6 +1417,8 @@ static int get_suitable_gpu(void)
     nvmlProcessInfo_t process_buf[100];
     char process_name[256];
     int  min_processes = 1000;
+    nvmlUtilization_t gpu_utilization;
+    unsigned int temperature;
 
     unsigned int local_pid = getpid();
     srand(local_pid);
@@ -1426,6 +1444,13 @@ static int get_suitable_gpu(void)
         //}
         check_nvml_errors(nvml_device_get_memory_info(device_handel, &memory_info));
         av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, memory_info: total=%llu, free=%llu, used=%llu.\n", local_pid, i, memory_info.total, memory_info.free, memory_info.used);
+
+        check_nvml_errors(nvml_device_get_utilization_rates(device_handel, &gpu_utilization));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, gpu_utilization: gpu=%u, memory=%u.\n", local_pid, i, gpu_utilization.gpu, gpu_utilization.memory);
+
+        check_nvml_errors(nvml_device_get_temperature(device_handel, 0, &temperature));
+        av_log(NULL, AV_LOG_INFO, "[get_suitable_gpu] local_pid=%u, device:%d, temperature: %u.\n", local_pid, i, temperature);
+
 
         // get processes info
         process_buf_size = 100;
