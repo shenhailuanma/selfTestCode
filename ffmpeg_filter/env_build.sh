@@ -90,7 +90,7 @@ then
 
     tar xf ffmpeg-3.0.2.tar.gz
     pushd ffmpeg-3.0.2
-    ./configure --prefix=${release_dir}
+    ./configure --prefix=${release_dir} --enable-filter=pp --enable-filter=spp --enable-filter=fspp --enable-gpl --enable-static --enable-nonfree --enable-version3
     make
     make install
     popd

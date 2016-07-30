@@ -6,6 +6,8 @@
 #include <time.h>
 
 
+#include "nvidia_info.h"
+
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -296,27 +298,9 @@ int nv_get_suitable_gpu(void)
                 suitable_gpu = i;
             }
         }
-    }else{
-        return -1;
     }
 
     return suitable_gpu;
 }
 
 
-
-
-
-int main(void)
-{
-
-
-    nvGpuInfo_t gpu_buf;
-
-    int ret = get_gpu_info(&gpu_buf);
-
-    if(!ret)
-        print_gpu_info(&gpu_buf);
-
-    return nv_get_suitable_gpu();
-}

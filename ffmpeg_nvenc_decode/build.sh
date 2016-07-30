@@ -94,6 +94,8 @@ then
     cp -rf ${current_dir}/src/libavcodec/allcodecs.c     ${build_dir}/ffmpeg-3.0.1/libavcodec
     cp -rf ${current_dir}/src/libavcodec/Makefile        ${build_dir}/ffmpeg-3.0.1/libavcodec  
     cp -rf ${current_dir}/src/libavcodec/nvenc_dec.c     ${build_dir}/ffmpeg-3.0.1/libavcodec     
+    cp -rf ${current_dir}/src/libavcodec/nvidia_info.c   ${build_dir}/ffmpeg-3.0.1/libavcodec
+    cp -rf ${current_dir}/src/libavcodec/nvidia_info.h   ${build_dir}/ffmpeg-3.0.1/libavcodec  
 
     pushd ffmpeg-3.0.1
     ./configure --prefix=${release_dir} --enable-static --enable-nonfree --enable-libfdk-aac --enable-nvenc \
