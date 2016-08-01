@@ -11,7 +11,7 @@
 
 #include "avcodec.h"
 #include "internal.h"
-#include "nvidia_info.h"
+
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -703,6 +703,7 @@ typedef struct NvencDecContext {
     int parser_width;
     int parser_height;
 
+    int video_codec;
 
     DecodeFrame         aFrameQueue[NVDEC_MAX_QUEUE_SIZE];
     //AVFrame   *         aFrameQueue[NVDEC_MAX_QUEUE_SIZE];
@@ -1019,10 +1020,6 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
     int ret ;
 
 
-    if(ctx->gpu < 0 || ctx->gpu >= ctx->device_count){
-        rand_sleep();
-        ctx->gpu = nv_get_suitable_gpu();
-    }
     // create cuda context
     ctx->cu_context = NULL;
     ret = dl_fn->cu_ctx_create(&ctx->cu_context, 4, dl_fn->nvenc_devices[ctx->gpu]);  //CU_CTX_SCHED_AUTO=0, CU_CTX_SCHED_BLOCKING_SYNC=4, avoid CPU spins
@@ -1047,7 +1044,7 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
 
 
     memset(&ctx->video_decode_create_info, 0, sizeof(ctx->video_decode_create_info));
-    ctx->video_decode_create_info.CodecType = cudaVideoCodec_H264; // fixme: should support other codec in feature
+    ctx->video_decode_create_info.CodecType = ctx->video_codec; 
     ctx->video_decode_create_info.ulWidth   = FFALIGN(width, 16);
     ctx->video_decode_create_info.ulHeight  = FFALIGN(height, 16);
     ctx->video_decode_create_info.ulNumDecodeSurfaces = 20; // fixme
@@ -1397,7 +1394,16 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
 
     /* create parser */
     memset(&ctx->video_parser_params, 0, sizeof(ctx->video_parser_params));
-    ctx->video_parser_params.CodecType              = cudaVideoCodec_H264; // fixme: should support other codec in feature
+    if(avctx->codec_id == AV_CODEC_ID_H264){
+        ctx->video_parser_params.CodecType              = cudaVideoCodec_H264; // fixme: should support other codec in feature
+    }else if(avctx->codec_id == AV_CODEC_ID_MPEG2VIDEO){
+        ctx->video_parser_params.CodecType              = cudaVideoCodec_MPEG2;
+    }else{
+        av_log(avctx, AV_LOG_FATAL, "Failed fot the codec:%d not support.\n", avctx->codec_id);
+        goto nvenc_decode_init_fail;
+    }
+    ctx->video_codec = ctx->video_parser_params.CodecType;
+
     //ctx->video_parser_params.ulMaxNumDecodeSurfaces = ctx->video_decode_create_info.ulNumDecodeSurfaces; // same as decoder 
     ctx->video_parser_params.ulMaxNumDecodeSurfaces = 6; // same as decoder 
     ctx->video_parser_params.ulMaxDisplayDelay      = 1;  // this flag is needed so the parser will push frames out to the decoder as quickly as it can
@@ -1523,10 +1529,47 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
     // fill the data to decode
     CUVIDSOURCEDATAPACKET cu_pkt;
     if(avpkt && avpkt->size > 0){
-        if (avpkt->size > 3 && !avpkt->data[0] &&
-            !avpkt->data[1] && !avpkt->data[2] && 1==avpkt->data[3]) {
-            /* we already have annex-b prefix */
-            av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame we already have annex-b prefix\n");
+
+        if(ctx->video_codec == cudaVideoCodec_H264){
+            if (avpkt->size > 3 && !avpkt->data[0] &&
+                !avpkt->data[1] && !avpkt->data[2] && 1==avpkt->data[3]) {
+                /* we already have annex-b prefix */
+                av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame we already have annex-b prefix\n");
+
+                ret = avpkt->size;
+
+                if (ret >= 0) {
+
+                    // fill the packet to video parser
+                    cu_pkt.flags = CUVID_PKT_TIMESTAMP;
+                    cu_pkt.payload_size = avpkt->size;
+                    cu_pkt.payload = avpkt->data;
+                    cu_pkt.timestamp = avpkt->pts;
+
+                    //fwrite(pkt_filtered.data, 1, pkt_filtered.size, ctx->fpWriteES);
+                }
+            } else {
+                /* no annex-b prefix. try to restore: */
+                av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame no annex-b prefix. try to restore\n");
+
+                ret = av_bitstream_filter_filter(ctx->bsf, avctx, "private_spspps_buf",
+                                             &p_filtered, &n_filtered,
+                                             avpkt->data, avpkt->size, 0);
+                if (ret >= 0) {
+                    pkt_filtered.pts  = avpkt->pts;
+                    pkt_filtered.dts  = avpkt->dts;
+                    pkt_filtered.data = p_filtered;
+                    pkt_filtered.size = n_filtered;
+
+                    // fill the packet to video parser
+                    cu_pkt.flags = CUVID_PKT_TIMESTAMP;
+                    cu_pkt.payload_size = pkt_filtered.size;
+                    cu_pkt.payload = pkt_filtered.data;
+                    cu_pkt.timestamp = pkt_filtered.pts;
+
+                }
+            }
+        }else{
 
             ret = avpkt->size;
 
@@ -1539,43 +1582,16 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
                 cu_pkt.timestamp = avpkt->pts;
 
                 //fwrite(pkt_filtered.data, 1, pkt_filtered.size, ctx->fpWriteES);
-
-                cu_ret = dl_fn->cuvid_parse_video_data(ctx->h_parser, &cu_pkt);
-                av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame cuvid_parse_video_data cu_ret=%d\n", cu_ret);
-
-                if (p_filtered != avpkt->data)
-                    av_free(p_filtered);
-                return ret > 0 ? avpkt->size : ret;
-            }
-        } else {
-            /* no annex-b prefix. try to restore: */
-            av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame no annex-b prefix. try to restore\n");
-
-            ret = av_bitstream_filter_filter(ctx->bsf, avctx, "private_spspps_buf",
-                                         &p_filtered, &n_filtered,
-                                         avpkt->data, avpkt->size, 0);
-            if (ret >= 0) {
-                pkt_filtered.pts  = avpkt->pts;
-                pkt_filtered.dts  = avpkt->dts;
-                pkt_filtered.data = p_filtered;
-                pkt_filtered.size = n_filtered;
-
-                // fill the packet to video parser
-                cu_pkt.flags = CUVID_PKT_TIMESTAMP;
-                cu_pkt.payload_size = pkt_filtered.size;
-                cu_pkt.payload = pkt_filtered.data;
-                cu_pkt.timestamp = pkt_filtered.pts;
-
-                //fwrite(pkt_filtered.data, 1, pkt_filtered.size, ctx->fpWriteES);
-
-                cu_ret = dl_fn->cuvid_parse_video_data(ctx->h_parser, &cu_pkt);
-                av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame cuvid_parse_video_data cu_ret=%d\n", cu_ret);
-
-                if (p_filtered != avpkt->data)
-                    av_free(p_filtered);
-                return ret > 0 ? avpkt->size : ret;
-            }
+            } 
         }
+
+        cu_ret = dl_fn->cuvid_parse_video_data(ctx->h_parser, &cu_pkt);
+        av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame cuvid_parse_video_data cu_ret=%d\n", cu_ret);
+
+        if (p_filtered != avpkt->data)
+            av_free(p_filtered);
+        return ret > 0 ? avpkt->size : ret;
+
     }
 
 
@@ -1617,7 +1633,7 @@ static const AVClass nvenc_h264_class = {
 
 AVCodec ff_nvenc_h264_decoder = {
     .name           = "nvenc_h264",
-    .long_name      = NULL_IF_CONFIG_SMALL("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (Nvidia nvenc)"),
+    .long_name      = NULL_IF_CONFIG_SMALL("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (Nvidia)"),
     .priv_data_size = sizeof(NvencDecContext),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_H264,
@@ -1630,3 +1646,24 @@ AVCodec ff_nvenc_h264_decoder = {
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_NV12, AV_PIX_FMT_NONE },
 };
 
+static const AVClass nvenc_mpeg2_class = {
+    .class_name = "nvenc_mpeg2",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
+AVCodec ff_nvenc_mpeg2_decoder = {
+    .name           = "nvenc_mpeg2",
+    .long_name      = NULL_IF_CONFIG_SMALL("MPEG-2 video (Nvidia)"),
+    .priv_data_size = sizeof(NvencDecContext),
+    .type           = AVMEDIA_TYPE_VIDEO,
+    .id             = AV_CODEC_ID_MPEG2VIDEO,
+    .init           = nvenc_decode_init,
+    .decode         = nvenc_decode_frame,
+    .flush          = nvenc_decode_flush,
+    .close          = nvenc_decode_close,
+    .capabilities   = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_DR1,
+    .priv_class     = &nvenc_mpeg2_class,
+    .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_NV12, AV_PIX_FMT_NONE },
+};

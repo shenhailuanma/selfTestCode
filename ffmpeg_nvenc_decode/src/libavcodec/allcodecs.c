@@ -607,7 +607,8 @@ void avcodec_register_all(void)
     REGISTER_ENCODER(NVENC,             nvenc);
     REGISTER_ENCODER(NVENC_H264,        nvenc_h264);
     REGISTER_ENCODER(NVENC_HEVC,        nvenc_hevc);
-    REGISTER_DECODER(NVENC_H264,        nvenc_h264);    
+    REGISTER_DECODER(NVENC_H264,        nvenc_h264); 
+    REGISTER_DECODER(NVENC_MPEG2,       nvenc_mpeg2);    
     REGISTER_ENCODER(HEVC_QSV,          hevc_qsv);
     REGISTER_ENCODER(LIBKVAZAAR,        libkvazaar);
     REGISTER_ENCODER(MPEG2_QSV,         mpeg2_qsv);

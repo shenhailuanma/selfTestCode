@@ -17,7 +17,6 @@ HEADERS = avcodec.h                                                     \
           videotoolbox.h                                                \
           vorbis_parser.h                                               \
           xvmc.h                                                        \
-          nvidia_info.h                                                 \
 
 OBJS = allcodecs.o                                                      \
        audioconvert.o                                                   \
@@ -105,7 +104,7 @@ OBJS-$(CONFIG_MPEGVIDEOENC)            += mpegvideo_enc.o mpeg12data.o  \
                                           mpegvideoencdsp.o
 OBJS-$(CONFIG_MSS34DSP)                += mss34dsp.o
 OBJS-$(CONFIG_NVENC)                   += nvenc.o
-OBJS-$(CONFIG_NVENC_H264_DECODER)      += nvenc_dec.o nvidia_info.o 
+OBJS-$(CONFIG_NVENC_H264_DECODER)      += nvenc_dec.o
 OBJS-$(CONFIG_PIXBLOCKDSP)             += pixblockdsp.o
 OBJS-$(CONFIG_QPELDSP)                 += qpeldsp.o
 OBJS-$(CONFIG_QSV)                     += qsv.o
