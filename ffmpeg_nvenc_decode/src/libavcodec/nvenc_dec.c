@@ -706,11 +706,10 @@ typedef struct NvencDecContext {
     int video_codec;
 
     DecodeFrame         aFrameQueue[NVDEC_MAX_QUEUE_SIZE];
-    //AVFrame   *         aFrameQueue[NVDEC_MAX_QUEUE_SIZE];
     volatile int        nFrameQueueReadPosition;
     volatile int        nFramesInFrameQueue;
 
-    CUdeviceptr  pDecodedFrame[2]; 
+
     unsigned char *pFrameYUV[NVDEC_MEMORY_NUMBER];
     volatile int        nReadPosition;
     volatile int        nFramesInQueue;
@@ -719,18 +718,10 @@ typedef struct NvencDecContext {
     volatile int        bEndOfDecode;
 
 
-
-
-    AVFrame tmp_frame; // fixme: 
-    int have_decoded_frames; // fixme: should delete after test
+    int have_decoded_frames; 
 
     /* Options */
     int gpu;
-
-
-    // for test
-    FILE *fpWriteYUV ;
-    FILE *fpWriteES ;
 
 } NvencDecContext;
 
@@ -746,49 +737,7 @@ static void print_hex(unsigned char * data, int len)
         printf("%2x ", data[i]);
     printf("\n");
 }
-/*
-static void frame_enqueue1(NvencDecContext *ctx, AVFrame * pFrame)
-{
-    int bPlacedFrame = 0;
-    int iWritePosition = 0;
 
-    do{
-        if (ctx->nFramesInFrameQueue < NVDEC_MAX_QUEUE_SIZE)
-        {
-            iWritePosition = (ctx->nFrameQueueReadPosition + ctx->nFramesInFrameQueue) % NVDEC_MAX_QUEUE_SIZE;
-            ctx->aFrameQueue[iWritePosition] = pFrame;
-            ctx->nFramesInFrameQueue++;
-            bPlacedFrame = 1;
-        }
-
-
-        if (bPlacedFrame) // Done
-            break;
-
-        sleep(1);   // Wait a bit
-
-    }while(!ctx->bEndOfDecode);
-}
-
-static int frame_dequeue1(NvencDecContext *ctx, AVFrame ** pFrame)
-{
-    int bHaveNewFrame = 0;
-
-
-    if (ctx->nFramesInFrameQueue > 0)
-    {
-        int iEntry = ctx->nFrameQueueReadPosition;
-        *pFrame = ctx->aFrameQueue[iEntry];
-        ctx->nFrameQueueReadPosition = (iEntry+1) % NVDEC_MAX_QUEUE_SIZE;
-        ctx->nFramesInFrameQueue--;
-        bHaveNewFrame = 1;
-        ctx->aFrameQueue[iEntry] = NULL;
-    }
-
-
-    return bHaveNewFrame;
-}
-*/
 static void frame_enqueue(NvencDecContext *ctx, const DecodeFrame * pFrame)
 {
     int bPlacedFrame = 0;
@@ -961,7 +910,7 @@ static av_cold int nvenc_decode_close(AVCodecContext *avctx)
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_close begin\n");
 
-    //ff_qsv_decode_close(&s->qsv);
+    
 
     av_bitstream_filter_close(ctx->bsf);
 
@@ -999,8 +948,12 @@ static av_cold int nvenc_decode_close(AVCodecContext *avctx)
     }
 
 
+    if(dl_fn->nvenc_lib)
+        DL_CLOSE_FUNC(dl_fn->nvenc_lib);
+    if(dl_fn->nvenc_dec_lib)
+        DL_CLOSE_FUNC(dl_fn->nvenc_dec_lib);
 
-
+    av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_close over\n");
     return 0;
 }
 
@@ -1028,21 +981,8 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
         return -1;
     }
 
-    // alloc the memory host
-    if(ctx->pFrameYUV[0] == NULL){
-        ret = dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], 2048*1088*3/2); 
-        if (ret != CUDA_SUCCESS) {
-            av_log(NULL, AV_LOG_FATAL, ">> cu_mem_alloc_host - failed with error code %d\n", ret);
-            return -1;
-        }
-    }
-    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[1], 2048*1088*3/2));
-    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[2], 1920*1080*3/2));
-    //check_cuda_errors(dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[3], 1920*1080*3/2));
 
-    av_log(NULL, AV_LOG_VERBOSE, "[nvenc_open_decoder] after alloc the memory host.\n");
-
-
+    // init the decoder params
     memset(&ctx->video_decode_create_info, 0, sizeof(ctx->video_decode_create_info));
     ctx->video_decode_create_info.CodecType = ctx->video_codec; 
     ctx->video_decode_create_info.ulWidth   = FFALIGN(width, 16);
@@ -1070,16 +1010,19 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
 
     ret = dl_fn->cuvid_lock_create(&ctx->vid_ctx_lock, ctx->cu_context);
     if (ret != CUDA_SUCCESS) {
-        av_log(NULL, AV_LOG_FATAL, ">> cuvid_lock_create - failed with error code %d\n", ret);
+        av_log(NULL, AV_LOG_FATAL, "[nvenc_open_decoder] cuvid_lock_create - failed with error code %d\n", ret);
         return -1;
     }
     ctx->video_decode_create_info.vidLock             = ctx->vid_ctx_lock; // fixme
 
     ret = dl_fn->cuvid_create_decoder(&ctx->h_decoder, &ctx->video_decode_create_info);
     if (ret != CUDA_SUCCESS) {
-        av_log(NULL, AV_LOG_FATAL, ">> cuvid_create_decoder - failed with error code %d\n",  ret);
+        av_log(NULL, AV_LOG_FATAL, "[nvenc_open_decoder] cuvid_create_decoder - failed with error code %d\n",  ret);
         return -1;
     }
+
+
+
 
     av_log(NULL, AV_LOG_VERBOSE, "[nvenc_open_decoder] after create video decoder.\n");
 
@@ -1153,18 +1096,14 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
 
 
     ret = dl_fn->cu_ctx_push_current(ctx->cu_context);
-    //av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cu_ctx_push_current ret=%d\n", ret);
 
     // map 
     CUVIDPROCPARAMS oVideoProcessingParameters;
     memset(&oVideoProcessingParameters, 0, sizeof(CUVIDPROCPARAMS));
 
-    //oVideoProcessingParameters.progressive_frame = pPicParams->progressive_frame;
     oVideoProcessingParameters.progressive_frame = oDisplayInfo.progressive_frame;
     oVideoProcessingParameters.second_field      = 0;
-    //oVideoProcessingParameters.top_field_first   = pPicParams->top_field_first;
     oVideoProcessingParameters.top_field_first   = oDisplayInfo.top_field_first;
-    //oVideoProcessingParameters.unpaired_field    = (pPicParams->progressive_frame == 1 || pPicParams->repeat_first_field <= 1);
     oVideoProcessingParameters.unpaired_field    = (oDisplayInfo.progressive_frame == 1 || oDisplayInfo.repeat_first_field <= 1);
 
     unsigned int nDecodedPitch = 0;
@@ -1173,7 +1112,6 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
     unsigned int nPicSize = 0;
     CUdeviceptr  pDecodedFrame[2] = { 0, 0 };
 
-    //ret = dl_fn->cuvid_map_video_frame(ctx->h_decoder, pPicParams->picture_index, &ctx->pDecodedFrame[0], &nDecodedPitch, &oVideoProcessingParameters);
     ret = dl_fn->cuvid_map_video_frame(ctx->h_decoder, oDisplayInfo.picture_index, &pDecodedFrame[0], &nDecodedPitch, &oVideoProcessingParameters);
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cuvid_map_video_frame ret=%d, CUdeviceptr=%ld size=%d\n", ret, pDecodedFrame[0], sizeof(pDecodedFrame[0]));
 
@@ -1182,7 +1120,21 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
     nHeight = ctx->video_decode_create_info.ulHeight;
     nPicSize = nDecodedPitch * nHeight * 3 / 2; 
 
-    //ret = dl_fn->cu_memcpy_dtoh_async(ctx->pFrameYUV[0], pDecodedFrame[0], nPicSize, ctx->h_stream);
+
+    // alloc the memory host
+    if(ctx->pFrameYUV[0] == NULL){
+        ret = dl_fn->cu_mem_alloc_host((void **)&ctx->pFrameYUV[0], nPicSize);  
+        if (ret != CUDA_SUCCESS) {
+            av_log(NULL, AV_LOG_FATAL, "[HandlePictureDisplay] cu_mem_alloc_host - failed with error code %d\n", ret);
+            return -1;
+        }
+        av_log(NULL, AV_LOG_INFO, "[HandlePictureDisplay] after alloc the memory host, %dx%d.\n", nDecodedPitch, nHeight);
+    }
+
+    
+
+
+    //ret = dl_fn->cu_memcpy_dtoh_async(ctx->pFrameYUV[0], pDecodedFrame[0], nPicSize, ctx->h_stream); // not use yet
     ret = dl_fn->cu_memcpy_dtoh(ctx->pFrameYUV[0], pDecodedFrame[0], nPicSize);
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cu_memcpy_dtoh_async ret=%d, nDecodedPitch=%d, nHeight=%d ,stream=%lld, dest=%lld\n", 
             ret, nDecodedPitch, nHeight, ctx->h_stream, ctx->pFrameYUV[0]);
@@ -1190,17 +1142,11 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
     if(ret != 0){
         av_log(NULL, AV_LOG_ERROR, "[HandlePictureDisplay] cu_memcpy_dtoh failed ret=%d\n", ret);
     }
-    // copy the data to frame
-    /*
-    print_hex(ctx->pFrameYUV[0], 30);
-    static write_cnt = 0;
-    if(write_cnt > 250 && write_cnt < 500)
-        fwrite(ctx->pFrameYUV[0], 1, nPicSize, ctx->fpWriteYUV);
-    write_cnt ++;
-    */
+
 
     DecodeFrame decodedFrame;
 
+    #if 1
     decodedFrame.decode_width = nWidth;
     decodedFrame.decode_height = nHeight;
     decodedFrame.decode_linesize = nWidth;
@@ -1208,7 +1154,6 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
     decodedFrame.data_size = nWidth*nHeight*3/2;
     decodedFrame.data = av_malloc(decodedFrame.data_size);
     if(decodedFrame.data){
-        //memcpy(decodedFrame.data, ctx->pFrameYUV[0], nPicSize);
 
         int i;
         unsigned char *buffer_dst = decodedFrame.data;
@@ -1227,20 +1172,25 @@ static int CUDAAPI HandlePictureDisplay(void *pUserData, CUVIDPARSERDISPINFO *pP
 
         frame_enqueue(ctx, &decodedFrame);
     }
+    #else
+    // the nDecodedPitch always biger than nWidth. 
+    // example: nWidth=1920, nDecodedPitch=2048
+    // so, the picture size is bigger (2048-1920)*1080*3/2 = 207360 bytes.
+    // I have do some test this mode not faster than other one, maybe because the extra data. 
 
-    /*
-    AVFrame *decoded_frame = av_frame_alloc();
-    if(decoded_frame){
-        decoded_frame->width    = nWidth;
-        decoded_frame->Height   = nHeight;
-
-
+    decodedFrame.decode_width = nWidth;
+    decodedFrame.decode_height = nHeight;
+    decodedFrame.decode_linesize = nDecodedPitch;
+    decodedFrame.pts = pPicParams->timestamp;
+    decodedFrame.data_size = nPicSize;
+    decodedFrame.data = av_malloc(decodedFrame.data_size);
+    if(decodedFrame.data){
+        memcpy(decodedFrame.data, ctx->pFrameYUV[0], nPicSize);
+        frame_enqueue(ctx, &decodedFrame);
     }
-    */
-
+    #endif
 
     // unmap
-    //ret = dl_fn->cuvid_unmap_video_frame(ctx->h_decoder, ctx->pDecodedFrame[0]);
     ret = dl_fn->cuvid_unmap_video_frame(ctx->h_decoder, pDecodedFrame[0]);
     av_log(NULL, AV_LOG_VERBOSE, "[HandlePictureDisplay] cuvid_unmap_video_frame ret=%d\n", ret);
 
@@ -1318,12 +1268,7 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     av_log(avctx, AV_LOG_VERBOSE, "video width=%d, height=%d, pix_fmt=%d, extradata_size=%d\n", 
         avctx->width, avctx->height, avctx->pix_fmt, avctx->extradata_size);
 
-    /*
-    if(avctx->width == 0 && avctx->height == 0){  // fixme:
-        avctx->width = 1920;
-        avctx->height = 1080;
-    }
-    */
+
 
     CUdevice cu_device = 0;
     char gpu_name[128];
@@ -1418,17 +1363,14 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     ctx->parser_height = 0;
 
     
-    // alloc the memory host
-    ctx->pFrameYUV[0] = NULL;
-    ctx->pFrameYUV[1] = NULL;
-    ctx->pFrameYUV[2] = NULL;
-    ctx->pFrameYUV[3] = NULL;
+    // init the memory host
+    for(i = 0; i < NVDEC_MEMORY_NUMBER; i++){
+        ctx->pFrameYUV[i] = NULL;
+    }
+
 
     // Create a Stream ID for handling Readback
-    ctx->h_stream = NULL;
-    //check_cuda_errors(dl_fn->cu_stream_create(&ctx->h_stream, 0));
-    //av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init after cu_stream_create, stream=%ld.\n", ctx->h_stream);
-
+    ctx->h_stream = NULL; // no need yet
 
     // others
     if (avctx->codec_id == AV_CODEC_ID_H264)
@@ -1440,10 +1382,6 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
         goto nvenc_decode_init_fail;
     }
 
-    //sleep(6);
-    // for test
-    //ctx->fpWriteYUV = fopen("/home/write.yuv","w+");
-    //ctx->fpWriteES  = fopen("/home/write.es", "w+");
 
     av_log(avctx, AV_LOG_INFO, "nvenc_decode_init over\n");
     return 0;
@@ -1493,11 +1431,9 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
         if(frame_dequeue(ctx, &decodedFrame)){
             frame->linesize[0] = decodedFrame.decode_linesize;
             frame->linesize[1] = decodedFrame.decode_linesize;
-            //frame->linesize[2] = decodedFrame.decode_linesize/2;
 
             frame->data[0] = decodedFrame.data;
             frame->data[1] = frame->data[0] + decodedFrame.decode_linesize*decodedFrame.decode_height;
-            //frame->data[2] = frame->data[1] + decodedFrame.decode_linesize*decodedFrame.decode_height/4;
 
             frame->extended_data = frame->data;
             frame->width = decodedFrame.decode_width;
@@ -1512,18 +1448,14 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
             av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame frame, data[0]:%lld, linesize[0]=%d, buf[0]=%lld\n", frame->data[0], frame->linesize[0], frame->buf[0]);
             av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_frame decodedFrame, width=%d, height=%d\n", frame->width, frame->height);
 
-            /*
-            static write_cnt = 0;
-            if(write_cnt > 250 && write_cnt < 500){
-                fwrite(frame->data[0], 1, decodedFrame.data_size, ctx->fpWriteYUV);
-            }
-            write_cnt ++;
-            */
-
-            
 
             *got_frame = 1;
         }
+    }
+
+    if(avctx->width <= 0 || avctx->height <= 0){
+        avctx->width = ctx->parser_width;
+        avctx->height = ctx->parser_height;
     }
 
     // fill the data to decode
@@ -1546,7 +1478,6 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
                     cu_pkt.payload = avpkt->data;
                     cu_pkt.timestamp = avpkt->pts;
 
-                    //fwrite(pkt_filtered.data, 1, pkt_filtered.size, ctx->fpWriteES);
                 }
             } else {
                 /* no annex-b prefix. try to restore: */
@@ -1581,7 +1512,6 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
                 cu_pkt.payload = avpkt->data;
                 cu_pkt.timestamp = avpkt->pts;
 
-                //fwrite(pkt_filtered.data, 1, pkt_filtered.size, ctx->fpWriteES);
             } 
         }
 
@@ -1595,10 +1525,7 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
     }
 
 
-    if(avctx->width <= 0 || avctx->height <= 0){
-        avctx->width = ctx->parser_width;
-        avctx->height = ctx->parser_height;
-    }
+
 
 
     ret = avpkt->size;  // fixme:
