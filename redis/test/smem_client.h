@@ -43,6 +43,7 @@ struct smemContext{
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
     redisContext *rctx;  /* redis context */
+    redisContext *rctx2;  /* redis context, used for consumer */
     redisAsyncContext *rasync;  /* redis async context */
     pthread_t async_tid;     /* thread for async redis */
 

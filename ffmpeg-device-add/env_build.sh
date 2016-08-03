@@ -73,6 +73,26 @@ else
 fi
 popd
 
+# x264
+pushd ${build_dir} 
+if ! [ -e "x264-ok" ]
+then
+    echo "########## libx264 begin ##########"
+    if ! [ -d "x264" ]
+    then
+        git clone --depth 1 git://git.videolan.org/x264
+    fi
+    pushd x264
+    ./configure --prefix=${release_dir} --enable-static --disable-opencl
+    make
+    make install
+    popd
+    touch x264-ok
+    echo "########## libx264 ok ##########"
+else
+    echo "########## libx264 has been installed ##########"
+fi
+popd
 
 #  ffmpeg
 pushd ${build_dir}

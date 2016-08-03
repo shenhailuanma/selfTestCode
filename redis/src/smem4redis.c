@@ -114,7 +114,7 @@ void smemgetCommand(client *c)
         
     }
 
-    serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %d", mem_id);
+    //serverLog(LL_WARNING,"[smemgetCommand] get share memory id: %d", mem_id);
 
     addReplyLongLong(c,mem_id);
     return C_OK;
@@ -129,6 +129,7 @@ void smemfreeCommand(client *c)
     listNode *lnode;
 
     int j;
+
 
     for (j = 1; j < c->argc; j++){
 
@@ -160,8 +161,8 @@ void smemfreeCommand(client *c)
     }
 
 
-
     addReplyLongLong(c,free_cnt);
+
     return C_OK;
 }
 
@@ -436,6 +437,6 @@ void smemFreeShareMemory(int timeout)
             used_free_cnt++;
         }
     }
-    serverLog(LL_WARNING,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, smem_list_used:%d, used_free_cnt=%d.", 
+    serverLog(LL_VERBOSE,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, smem_list_used:%d, used_free_cnt=%d.", 
         server.smem_list_available->len, available_free_cnt, server.smem_list_used->len, used_free_cnt);
 }

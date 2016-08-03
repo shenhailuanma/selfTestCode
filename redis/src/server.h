@@ -940,8 +940,8 @@ struct redisServer {
     dict *smempubsub_channels; /* Map channels to list of subscribed clients , add by zx for smem */
     list *smem_list_used;   /* add by zx for smem */
     list *smem_list_available;   /* add by zx for smem */
-    int  share_memory_size; /* add by zx for smem */
-    int  share_memory_limit;  /* The max size of the share memory used, add by zx for smem */
+    size_t  share_memory_size; /* add by zx for smem */
+    size_t  share_memory_limit;  /* The max size of the share memory used, add by zx for smem */
 
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */

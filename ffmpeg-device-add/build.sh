@@ -41,11 +41,12 @@ pushd ${build_dir}
     cp -rf ${current_dir}/../redis/test/smem_client.c                   ${build_dir}/ffmpeg-3.0.2/libavdevice
     cp -rf ${current_dir}/../redis/test/smem_client.h                   ${build_dir}/ffmpeg-3.0.2/libavdevice
 
+    rm -rf ${current_dir}/../redis/_release/lib/*.so.*
 
     pushd ffmpeg-3.0.2
     ./configure --prefix=${release_dir} --enable-gpl --enable-static --enable-nonfree --enable-version3 \
---extra-cflags="-I${current_dir}/../redis/_release/include/hiredis -I${current_dir}/../redis/_release/include" \
---extra-ldflags="-L${current_dir}/../redis/_release/lib -levent -lm -lpthread -lrt -ldl " --extra-libs=-lhiredis
+--extra-cflags="-I${current_dir}/../redis/_release/include/hiredis -I${current_dir}/../redis/_release/include -I${release_dir}/include" \
+--extra-ldflags="-L${current_dir}/../redis/_release/lib -L${release_dir}/lib  -levent -lm -lpthread -lrt -ldl " --extra-libs=-lhiredis --enable-libx264
     make
     make install
     popd

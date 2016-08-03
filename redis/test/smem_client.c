@@ -144,15 +144,53 @@ void smemFreeShareMemory(struct smemContext * c, int id)
     // free share memory id
     reply = redisCommand(c->rctx,"SMEMFREE %d", id);
     if(!reply){
-        printf("SMEFREE reply error\n");
+        printf("[smemFreeShareMemory] SMEFREE reply error\n");
         return;
     }
     freeReplyObject(reply);
 }
 
 
+static void smemFreeShareMemory2(struct smemContext * c, int id)
+{
+    if(!c)
+        return SMEM_ERROR_INPUT_POINTER;
+
+    if(id < 0)
+        return SMEM_ERROR_INPUT_VALUE;
+
+    if(!c->rctx)
+        return SMEM_ERROR_INPUT_POINTER;
+
+    redisReply *reply;
+    // free share memory id
+    reply = redisCommand(c->rctx2,"SMEMFREE %d", id);
+    if(!reply){
+        printf("[smemFreeShareMemory2] SMEFREE reply error\n");
+        return;
+    }
+    freeReplyObject(reply);
+}
 
 
+static redisContext * smemCreateConnect(const char *ip, int port)
+{
+
+    redisContext * rctx = NULL;
+
+    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+    rctx = redisConnectWithTimeout(ip, port, timeout);
+    if (rctx == NULL || rctx->err) {
+
+        if (rctx) {
+            redisFree(rctx);        
+        }
+        rctx = NULL;
+    }
+
+
+    return rctx;
+}
 
 struct smemContext * smemCreateProducer(const char *ip, int port, const char *name)
 {
@@ -213,7 +251,7 @@ static void subCallback(redisAsyncContext *c, void *r, void *priv) {
         if(mem_id <= 0)
             return;
 
-        printf("mem_id=%d\n", mem_id);
+        //printf("mem_id=%d\n", mem_id);
 
         // write to queue
         if(!smem_queue_push(ctx, mem_id)){
@@ -226,7 +264,8 @@ static void subCallback(redisAsyncContext *c, void *r, void *priv) {
                 printf("the queue is full, now to delete the oldest one and add the new one\n");
 
                 // free the old one mem_id
-                smemFreeShareMemory(ctx, val);
+                //smemFreeShareMemory(ctx, val);
+                smemFreeShareMemory2(ctx, val);
 
                 // push the mem_id again
                 smem_queue_push(ctx, mem_id);
@@ -266,6 +305,8 @@ static void * smemAsyncThread(void * h)
         return 1;
     }
 
+
+
     struct event_base *base = event_base_new();
 
     redisLibeventAttach(c->rasync,base);
@@ -284,8 +325,14 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char *na
 
     c = smemCreateProducer(ip, port, name);
     if(c == NULL || c->err){
-        return c;
+        return NULL;
     }
+
+    c->rctx2 = smemCreateConnect(ip, port);
+    if(c->rctx2 == NULL){
+        return NULL;
+    }
+
 
     c->type = SMEM_CLIENT_TYPE_CONSUMER;
 

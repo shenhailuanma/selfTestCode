@@ -42,7 +42,7 @@ struct stream_info2 {
 };
 
 
-struct smem_dec_ctx {
+typedef struct smem_dec_ctx {
     const AVClass *class;
 
     struct smemContext * sctx;
@@ -60,10 +60,11 @@ struct smem_dec_ctx {
     int height;
 
     /* Options */
+    int timeout;
 
     /* test */
     FILE * yuv_file;
-};
+}smem_dec_ctx;
 
 #define TEST_FILE_OUT "/root/video_out.yuv"
 
@@ -76,6 +77,7 @@ static int get_stream_info(AVFormatContext *avctx)
     uint8_t *mem_ptr = NULL;
     int ret;
 
+    int64_t last_time = av_gettime_relative();
 
     while(1){
         // to get one share memory
@@ -123,6 +125,12 @@ static int get_stream_info(AVFormatContext *avctx)
         else{
             av_usleep(1);
             // fixme: should be add timeout
+            // when timeout break
+            if(av_gettime_relative() - last_time > ctx->timeout*1000000){
+                av_log(avctx, AV_LOG_INFO, "timeout:%d\n", ctx->timeout);
+                return -1;
+            }
+
         }
     }
     return 0;
@@ -251,6 +259,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
     uint8_t *mem_ptr = NULL;
     struct memory_info2 * m_info;
 
+    int64_t last_time = av_gettime_relative();
 
     int cnt = 0;
     av_init_packet(pkt);
@@ -265,6 +274,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             if(mem_ptr == (void *)-1){
                 av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error.\n", mem_id);
                 smemFreeShareMemory(ctx->sctx, mem_id);
+                av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error and free over.\n", mem_id);
                 av_usleep(1);
                 continue;
             }
@@ -315,17 +325,26 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             }
 
             // free the memory id
+            av_log(avctx, AV_LOG_ERROR, "smemFreeShareMemory, mem_id=%d\n", mem_id);
             smemFreeShareMemory(ctx->sctx, mem_id);
-            av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
+            av_log(avctx, AV_LOG_ERROR, "smemFreeShareMemory, mem_id=%d over.\n", mem_id);
 
             cnt = 0;
 
             break;
         
         }
-        //return -1; // for test
+
         av_usleep(1);
         //av_log(avctx, AV_LOG_VERBOSE, "av_usleep %d\n", cnt++);
+
+        // when timeout break
+        if(av_gettime_relative() - last_time > ctx->timeout*1000000){
+            av_log(avctx, AV_LOG_INFO, "timeout:%d\n", ctx->timeout);
+            return -1;
+        }
+
+
     }
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet over\n");
     return 0;
@@ -348,8 +367,13 @@ av_cold static int ff_smem_read_close(AVFormatContext *avctx)
 }
 
 
+#define OFFSET(x) offsetof(smem_dec_ctx, x)
+#define DEC AV_OPT_FLAG_DECODING_PARAM
+#define ENC AV_OPT_FLAG_ENCODING_PARAM
+
 static const AVOption options[] = {
-{ NULL },
+    { "timeout", "set maximum timeout (in seconds)", OFFSET(timeout), AV_OPT_TYPE_INT, {.i64 = 5}, INT_MIN, INT_MAX, DEC },
+    { NULL },
 };
 
 static const AVClass smem_demuxer_class = {

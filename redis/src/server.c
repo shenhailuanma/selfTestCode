@@ -1174,8 +1174,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 
     /* smem cron add by zx */
-    run_with_period(2000) {
-        serverLog(LL_WARNING,"free the share memory that long time no need, the total_system_mem=%lu, share_memory_size=%d, share_memory_limit=%d, smem_list_used=%u, smem_list_available=%u. ", 
+    run_with_period(5000) {
+        serverLog(LL_VERBOSE,"free the share memory that long time no need, the total_system_mem=%lu, share_memory_size=%lu, share_memory_limit=%lu, smem_list_used=%u, smem_list_available=%u. ", 
             server.system_memory_size, server.share_memory_size, server.share_memory_limit, server.smem_list_used->len, server.smem_list_available->len);
 
         // free the share memory where long time use
