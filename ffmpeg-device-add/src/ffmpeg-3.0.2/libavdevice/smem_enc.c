@@ -11,6 +11,31 @@
 #include "smem_enc.h"
 #include "smem_client.h"
 
+
+static const AVCodecTag smem_codec_ids[] = {
+    { AV_CODEC_ID_RAWVIDEO    , 0x01 },
+    { AV_CODEC_ID_PCM_S16LE   , 0x02 },
+    { AV_CODEC_ID_MPEG4       , 0x20 },
+    { AV_CODEC_ID_H264        , 0x21 },
+    { AV_CODEC_ID_HEVC        , 0x23 },
+    { AV_CODEC_ID_MPEG2VIDEO  , 0x61 }, /* MPEG2 */
+    { AV_CODEC_ID_AAC         , 0x66 }, /* AAC  */
+    { AV_CODEC_ID_MP3         , 0x69 }, /* 13818-3 */
+    { AV_CODEC_ID_MP2         , 0x69 }, /* 11172-3 */
+    { AV_CODEC_ID_MPEG1VIDEO  , 0x6A }, /* 11172-2 */
+    { AV_CODEC_ID_MP3         , 0x6B }, /* 11172-3 */
+    { AV_CODEC_ID_MJPEG       , 0x6C }, /* 10918-1 */
+    { AV_CODEC_ID_PNG         , 0x6D },
+    { AV_CODEC_ID_JPEG2000    , 0x6E }, /* 15444-1 */
+    { AV_CODEC_ID_VC1         , 0xA3 },
+    { AV_CODEC_ID_AC3         , 0xA5 },
+    { AV_CODEC_ID_EAC3        , 0xA6 },
+    { AV_CODEC_ID_DTS         , 0xA9 }, /* mp4ra.org */
+    { AV_CODEC_ID_VORBIS      , 0xDD }, /* non standard, gpac uses it */
+    { AV_CODEC_ID_NONE        ,    0 },
+};
+
+
 struct memory_info {
     int index;  // stream index
     int64_t pts;
@@ -19,6 +44,7 @@ struct memory_info {
     int stream_info_number;
     int data_offset;
     int data_size;
+    int is_key;
 };
 
 struct stream_info {
@@ -32,12 +58,15 @@ struct stream_info {
     int width;
     int height;
     enum AVPixelFormat pix_fmt;
+    int video_extradata_size;
+    uint8_t video_extradata[128];
 
     /* audio */
     int sample_rate; ///< samples per second
     int channels;    ///< number of audio channels
     enum AVSampleFormat sample_fmt;  ///< sample format
-
+    int audio_extradata_size;
+    uint8_t audio_extradata[128];
     /* other stream not support yet */
 };
 
@@ -108,6 +137,13 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].sample_rate = c->sample_rate;
             ctx->stream_infos[n].channels = c->channels;
             ctx->stream_infos[n].sample_fmt = c->sample_fmt;
+            ctx->stream_infos[n].audio_extradata_size = c->extradata_size;
+            if(c->extradata_size > 0){
+                memcpy(ctx->stream_infos[n].audio_extradata, c->extradata, c->extradata_size);
+            }
+
+            av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header audio, codec_id=%d, sample_rate=%d, channels=%d, sample_fmt=%d .\n", 
+                c->codec_id, c->sample_rate, c->channels, c->sample_fmt);
 
         } else if (c->codec_type == AVMEDIA_TYPE_VIDEO) {
             av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header stream[%d] is video stream.\n", n);
@@ -126,8 +162,13 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].width = c->width;
             ctx->stream_infos[n].height = c->height;
             ctx->stream_infos[n].pix_fmt = c->pix_fmt;
+            ctx->stream_infos[n].video_extradata_size = c->extradata_size;
+            if(c->extradata_size > 0){
+                memcpy(ctx->stream_infos[n].video_extradata, c->extradata, c->extradata_size);
+            }
 
-            av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header video width=%d, height=%d.\n", c->width, c->height);
+            av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header video, codec_id=%d, pix_fmt=%d, width=%d, height=%d, extradata_size=%d.\n", 
+                c->codec_id, c->pix_fmt, c->width, c->height, c->extradata_size);
 
         } else {
             av_log(avctx, AV_LOG_ERROR, "Unsupported stream type.\n");
@@ -200,10 +241,16 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
     m_info->index = pkt->stream_index;
     //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
     m_info->pts = pkt->pts; // fixme:
+    m_info->dts = pkt->dts;
     m_info->stream_info_offset = sizeof(struct memory_info);
     m_info->stream_info_number = ctx->stream_number;
     m_info->data_offset = sizeof(struct memory_info) + ctx->stream_info_size;
     m_info->data_size = pic_size;
+
+    if(pkt->flags & AV_PKT_FLAG_KEY)
+        m_info->is_key = 1;
+    else
+        m_info->is_key = 0;
 
     // copy the streams info
     memcpy(mem_ptr+m_info->stream_info_offset, ctx->stream_infos, ctx->stream_info_size);
@@ -219,7 +266,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
     
-    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d), stream_info_offset=%d, data_offset=%d, data_size=%d, ret=%d.\n", pkt->stream_index, m_info->pts, 
+    av_log(avctx, AV_LOG_VERBOSE,"stream_index=%d, pts=%lld, time_base=(%d, %d), stream_info_offset=%d, data_offset=%d, data_size=%d, ret=%d.\n", pkt->stream_index, m_info->pts, 
         ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den,
         m_info->stream_info_offset, m_info->data_offset, m_info->data_size, ret);
 
@@ -283,10 +330,16 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     m_info->index = pkt->stream_index;
     //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
     m_info->pts = pkt->pts; // fixme:
+    m_info->dts = pkt->dts;
     m_info->stream_info_offset = sizeof(struct memory_info);
     m_info->stream_info_number = ctx->stream_number;
     m_info->data_offset = sizeof(struct memory_info) + ctx->stream_info_size;
     m_info->data_size = buf_size;
+
+    if(pkt->flags & AV_PKT_FLAG_KEY)
+        m_info->is_key = 1;
+    else
+        m_info->is_key = 0;
 
     // copy the streams info
     memcpy(mem_ptr+m_info->stream_info_offset, ctx->stream_infos, ctx->stream_info_size);
@@ -295,7 +348,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
 
 
-    av_log(avctx, AV_LOG_ERROR,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
+    av_log(avctx, AV_LOG_VERBOSE,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
         ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
 
     // publish share memory id
@@ -319,17 +372,21 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
 
 static int ff_smem_write_packet(AVFormatContext *avctx, AVPacket *pkt)
 {
-    av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_packet\n");
+
     struct smem_enc_ctx * ctx = avctx->priv_data;
 
 
     AVStream *st = avctx->streams[pkt->stream_index];
 
-    if      (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
-        return ff_smem_write_video_packet(avctx, pkt);
-    else if (st->codec->codec_type == AVMEDIA_TYPE_AUDIO)
+    if      (st->codec->codec_type == AVMEDIA_TYPE_VIDEO){
+        if(st->codec->codec_id == AV_CODEC_ID_RAWVIDEO){
+            return ff_smem_write_video_packet(avctx, pkt);
+        }else{
+            return ff_smem_write_audio_packet(avctx, pkt);
+        }
+    }else if (st->codec->codec_type == AVMEDIA_TYPE_AUDIO){
         return ff_smem_write_audio_packet(avctx, pkt);
-
+    }
 
     return AVERROR(EIO);
 }
@@ -367,4 +424,5 @@ AVOutputFormat ff_smem_muxer = {
     .write_header   = ff_smem_write_header,
     .write_packet   = ff_smem_write_packet,
     .write_trailer  = ff_smem_write_close,
+    //.codec_tag      = (const AVCodecTag* const []) { smem_codec_ids, 0 },
 };

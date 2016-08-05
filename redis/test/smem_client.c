@@ -75,7 +75,7 @@ static int smemProducerGetShareMemory(struct smemContext * c, int size)
     // get share memory id
     reply = redisCommand(c->rctx,"SMEMGET %d",  size);
     if(reply){
-        printf("reply type:%d, integer:%lld, len:%d, str:%s\n", reply->type, reply->integer, reply->len, reply->str);
+        //printf("reply type:%d, integer:%lld, len:%d, str:%s\n", reply->type, reply->integer, reply->len, reply->str);
         if(reply->type == REDIS_REPLY_INTEGER){
             mem_id = reply->integer;
         }
