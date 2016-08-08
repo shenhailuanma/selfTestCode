@@ -72,6 +72,7 @@ typedef struct smem_dec_ctx {
     int height;
 
     // for timestamp
+    int       base_stream_start;
     int64_t   out_index; // the stream index of the out timestamp base used
     int64_t   last_out_ts[SMEM_MAX_STREAM]; // the last out ts for each stream,timebase={1, 1000000}
     int64_t   last_in_ts[SMEM_MAX_STREAM]; // the last in ts for each stream
@@ -295,20 +296,22 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
 {
     struct smem_dec_ctx * ctx = avctx->priv_data;
 
-    av_log(avctx, AV_LOG_INFO, "[rebuild_timestamp] before rebuild pts: %lld, dts: %lld\n", m_info->pts, m_info->dts);
+    av_log(avctx, AV_LOG_VERBOSE, "[rebuild_timestamp] before rebuild pts: %lld, dts: %lld\n", m_info->pts, m_info->dts);
 
     int64_t pts = av_rescale_q(m_info->pts, ctx->in_timebase[m_info->index], SMEM_TIME_BASE_Q);
     int64_t dts = av_rescale_q(m_info->dts, ctx->in_timebase[m_info->index], SMEM_TIME_BASE_Q);
 
-
+    int64_t dt;
 
     if(m_info->index == 0){
         // the first number stream is the timestamp rebuild base stream 
 
         if(SMEM_NUM_IF_OUT_RANGE(dts - ctx->last_in_ts[m_info->index], 0, 5*ctx->should_duration[m_info->index])){
-            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the in dts: %lld is out of the range\n", m_info->index, dts, dts);
+            ctx->first_in_ts[m_info->index] = dts;
+
+            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the new dts: %lld is out of the range\n", m_info->index, ctx->last_in_ts[m_info->index], dts);
             *out_dts = ctx->last_out_ts[m_info->index] + ctx->should_duration[m_info->index];
-            ctx->first_in_ts[m_info->index] = *out_dts;
+            
 
         }else{
             *out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[m_info->index]);
@@ -316,20 +319,75 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
 
         *out_pts = *out_dts + (pts - dts) + 2*ctx->should_duration[m_info->index];
 
+        ctx->base_stream_start = 1;
 
     }else{
+        if(ctx->base_stream_start != 1){
+            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, base stream not start, skip.\n", m_info->index);
+            return -1;
+        }
+
         // other number streams check the timestamp by the base stream
         if(SMEM_NUM_IF_OUT_RANGE(dts - ctx->last_in_ts[m_info->index], 0, 5*ctx->should_duration[m_info->index])){
-            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the in dts: %lld is out of the range\n", m_info->index, dts, dts);
-            *out_dts = ctx->last_out_ts[m_info->index] + ctx->should_duration[m_info->index];
-            ctx->first_in_ts[m_info->index] = *out_dts;
+            ctx->first_in_ts[m_info->index] = dts;
+
+            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the new dts: %lld is out of the range\n", m_info->index, ctx->last_in_ts[m_info->index], dts);
+            
+
+            // the others streams should after base stream
+            if(ctx->first_in_ts[m_info->index] < ctx->first_in_ts[0]){
+                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, the local stream time(%lld) < base stream time(%lld), skip.\n"
+                    , m_info->index, ctx->first_in_ts[m_info->index], ctx->first_in_ts[0]);
+
+                return -1;
+            }
+
+            dt = ctx->first_in_ts[m_info->index] - ctx->first_in_ts[0]; // the dt of the new streams
+
+            //av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] first_in_ts[%d]:%lld - ctx->first_in_ts[0]:%lld = %lld\n", 
+            //    m_info->index, ctx->first_in_ts[m_info->index], ctx->first_in_ts[0], dt);
+
+            // the streams out ts should same as dt
+            *out_dts = ctx->last_out_ts[0] + SMEM_NUM_IN_RANGE(dt, ctx->should_duration[m_info->index], 10*ctx->should_duration[m_info->index]);
+
+            if(*out_dts < ctx->last_out_ts[m_info->index]){
+                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, the local out time(%lld) < last out time(%lld), skip.\n",
+                    m_info->index,*out_dts, ctx->last_out_ts[m_info->index]);
+                return -1;
+            }
+
+            /*
+            dt = dts - ctx->last_in_ts[0]; // will 
+
+            if(ctx->last_out_ts[m_info->index] >= (ctx->last_out_ts[0] + dt) ){
+
+
+            }
+
+
+            // 
+            if((ctx->last_out_ts[m_info->index] + dt ) >= ctx->last_out_ts[0]){
+                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last stream:0 dts: %lld, the new dts: %lld, last_out_ts:%lld, last_out_ts[0]:%lld\n", 
+                    m_info->index, ctx->last_in_ts[0], dts, ctx->last_out_ts[m_info->index], ctx->last_out_ts[0]);
+                return -1;
+            }else{
+                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] ok index:%d, last stream:0 dts: %lld, the new dts: %lld, last_out_ts:%lld, last_out_ts[0]:%lld\n", 
+                    m_info->index, ctx->last_in_ts[0], dts, ctx->last_out_ts[m_info->index], ctx->last_out_ts[0]);
+
+            }
+            */
+
+            //*out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[0]);
+            //*out_dts = ctx->last_out_ts[m_info->index] + ctx->should_duration[m_info->index];
+
 
         }else{
+
+
             *out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[m_info->index]);
         }
 
         *out_pts = *out_dts + (pts - dts) + 2*ctx->should_duration[m_info->index];
-
 
     }
 
@@ -337,7 +395,7 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
     ctx->last_out_ts[m_info->index] = *out_dts;
 
 
-    av_log(avctx, AV_LOG_INFO, "[rebuild_timestamp] after rebuild pts: %lld, dts: %lld\n", *out_pts, *out_dts);
+    av_log(avctx, AV_LOG_VERBOSE, "[rebuild_timestamp] after rebuild pts: %lld, dts: %lld\n", *out_pts, *out_dts);
 
 
     return 0;
@@ -384,6 +442,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
             // fixme: need rebuild the timestamp
             if(rebuild_timestamp(avctx, m_info, &out_pts, &out_dts) < 0){
+                smemFreeShareMemory(ctx->sctx, mem_id);
                 continue;
             }
 
