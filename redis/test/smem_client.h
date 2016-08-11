@@ -75,6 +75,8 @@ void smemFreeShareMemory(struct smemContext * c, int id);
 // publish the share memory
 void smemPublish(struct smemContext * c, int id);
 
+int smem_queue_size(struct smemContext * c);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

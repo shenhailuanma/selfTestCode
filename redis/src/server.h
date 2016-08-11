@@ -1486,7 +1486,8 @@ struct smem_t {
     unsigned int    uid;
     unsigned int    mode; 
     int     state; /* the share memory state, define by SMEM_T_STATE_XXX */
-    int     cnt;
+    int     cnt; /* the share memory used count */
+    int     free_cnt; /* the share memory free count */
     time_t  last_time;          /* last use time */
 };
 

@@ -48,6 +48,11 @@ static int smem_queue_pop(struct smemContext * c, int * val)
     return 1;
 }
 
+int smem_queue_size(struct smemContext * c)
+{
+
+    return (c->queue_end - c->queue_head + SMEM_MAX_QUEUE_LENGTH) % SMEM_MAX_QUEUE_LENGTH;
+}
 
 void smemFree(struct smemContext * c)
 {
@@ -58,8 +63,12 @@ void smemFree(struct smemContext * c)
         redisFree(c->rctx);
     }
 
+    if(c->rctx2){
+        redisFree(c->rctx2);
+    }
+
     if(c->rasync)
-        redisFree(c->rctx);
+        redisFree(c->rasync);
 
     free(c);
 }
@@ -132,13 +141,13 @@ int smemGetShareMemory(struct smemContext * c, int size)
 void smemFreeShareMemory(struct smemContext * c, int id)
 {
     if(!c)
-        return SMEM_ERROR_INPUT_POINTER;
+        return;
 
     if(id < 0)
-        return SMEM_ERROR_INPUT_VALUE;
+        return;
 
     if(!c->rctx)
-        return SMEM_ERROR_INPUT_POINTER;
+        return;
 
     redisReply *reply;
     // free share memory id
@@ -153,14 +162,15 @@ void smemFreeShareMemory(struct smemContext * c, int id)
 
 static void smemFreeShareMemory2(struct smemContext * c, int id)
 {
+
     if(!c)
-        return SMEM_ERROR_INPUT_POINTER;
+        return ;
 
     if(id < 0)
-        return SMEM_ERROR_INPUT_VALUE;
+        return ;
 
     if(!c->rctx)
-        return SMEM_ERROR_INPUT_POINTER;
+        return ;
 
     redisReply *reply;
     // free share memory id
@@ -170,6 +180,7 @@ static void smemFreeShareMemory2(struct smemContext * c, int id)
         return;
     }
     freeReplyObject(reply);
+
 }
 
 
@@ -255,21 +266,24 @@ static void subCallback(redisAsyncContext *c, void *r, void *priv) {
 
         // write to queue
         if(!smem_queue_push(ctx, mem_id)){
-            // push the val to queue failed, because the queue is full,
-            // to delete the old one and add the new one
+            // push the val to queue failed, because the queue is full
 
+            smemFreeShareMemory2(ctx, mem_id); // fixme: for test
+            printf("the queue is full, now to delete the new one\n");
+            return;
+
+            /*
+            printf("the queue is full, now to delete the oldest one and add the new one\n");
             val = -1;
             smem_queue_pop(ctx, &val);
             if(val != -1){
-                printf("the queue is full, now to delete the oldest one and add the new one\n");
-
                 // free the old one mem_id
-                //smemFreeShareMemory(ctx, val);
                 smemFreeShareMemory2(ctx, val);
 
                 // push the mem_id again
                 smem_queue_push(ctx, mem_id);
             }
+            */
         }
         
     }
@@ -302,7 +316,7 @@ static void * smemAsyncThread(void * h)
     if (!c->rasync || c->rasync->err) {
         /* Let *c leak for now... */
         printf("Error: %s\n", c->rasync->errstr);
-        return 1;
+        return NULL;
     }
 
 

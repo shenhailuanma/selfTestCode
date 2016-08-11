@@ -104,7 +104,10 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
     /* get the input stream url, the stream format should be like :  "smem://127.0.0.1:6379/channel_name"*/
     av_log(avctx, AV_LOG_VERBOSE, "channel name:%s\n", avctx->filename);
 
-
+    if(strlen(avctx->filename) <= 0){
+        av_log(avctx, AV_LOG_ERROR, "output path should not null.\n");
+        return AVERROR(EIO);
+    }
 
     /* setup the streams */
     ctx->stream_number = avctx->nb_streams;
@@ -178,7 +181,7 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
 
 
     /* connect to the server */
-    ctx->sctx = smemCreateProducer("127.0.0.1", 6379, "test");
+    ctx->sctx = smemCreateProducer("127.0.0.1", 6379, avctx->filename);
     if(!ctx->sctx || ctx->sctx->err < 0){
         if (ctx->sctx) {
             av_log(avctx, AV_LOG_ERROR,"Connection error: %s\n", ctx->sctx->errstr);
@@ -395,6 +398,15 @@ static int ff_smem_write_packet(AVFormatContext *avctx, AVPacket *pkt)
 av_cold static int ff_smem_write_close(AVFormatContext *avctx)
 {
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_close\n");
+
+    struct smem_enc_ctx * ctx = avctx->priv_data;
+
+    if(ctx->sctx)
+        smemFree(ctx->sctx);
+
+    if(ctx->stream_infos)
+        av_free(ctx->stream_infos);
+
     return 0;
 }
 

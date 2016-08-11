@@ -9,7 +9,7 @@
 #include "smem_dec.h"
 #include "smem_client.h"
 
-
+#include <string.h>
 
 struct memory_info2 {
     int index;  // stream index
@@ -83,11 +83,9 @@ typedef struct smem_dec_ctx {
     /* Options */
     int timeout;
 
-    /* test */
-    FILE * yuv_file;
 }smem_dec_ctx;
 
-//#define TEST_FILE_OUT "/root/video_out.yuv"
+
 
 static int get_stream_info(AVFormatContext *avctx)
 {
@@ -104,7 +102,7 @@ static int get_stream_info(AVFormatContext *avctx)
         // to get one share memory
         mem_id = smemGetShareMemory(ctx->sctx, 0);
         if(mem_id > 0){
-            av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
+            //av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
 
             // get the memory ptr
             mem_ptr = shmat(mem_id, 0, 0);
@@ -113,7 +111,7 @@ static int get_stream_info(AVFormatContext *avctx)
                 smemFreeShareMemory(ctx->sctx, mem_id);
                 return -1;
             }
-            av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
+            //av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
 
             
             // get stream info
@@ -139,7 +137,7 @@ static int get_stream_info(AVFormatContext *avctx)
 
             // free the memory id
             smemFreeShareMemory(ctx->sctx, mem_id);
-            av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
+            //av_log(avctx, AV_LOG_VERBOSE, "smemFreeShareMemory\n");
 
             break;
         }
@@ -168,10 +166,13 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
 
     /* get the input stream url, the stream format should be like :  "smem://127.0.0.1:6379/channel_name"*/
     av_log(avctx, AV_LOG_VERBOSE, "channel name:%s\n", avctx->filename);
-
+    if(strlen(avctx->filename) <= 0){
+        av_log(avctx, AV_LOG_ERROR, "input path should not null.\n");
+        return AVERROR(EIO);
+    }
 
     /* connect to the server */
-    ctx->sctx = smemCreateConsumer("127.0.0.1", 6379, "test");
+    ctx->sctx = smemCreateConsumer("127.0.0.1", 6379, avctx->filename);
     if(!ctx->sctx || ctx->sctx->err < 0){
         if (ctx->sctx) {
             av_log(avctx, AV_LOG_ERROR,"Connection error: %s\n", ctx->sctx->errstr);
@@ -274,13 +275,6 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
         }
     }
 
-
-    #ifdef TEST_FILE_OUT
-        ctx->yuv_file = fopen(TEST_FILE_OUT, "w+");
-        if(ctx->yuv_file == NULL){
-            av_log(avctx, AV_LOG_ERROR,"open file:%s for test failed.\n", TEST_FILE_OUT);
-        }
-    #endif 
 
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_header over\n");
 
@@ -401,6 +395,32 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
     return 0;
 }
 
+static int if_free_frame(AVFormatContext *avctx, int stream_index)
+{
+    struct smem_dec_ctx * ctx = avctx->priv_data;
+    struct stream_info2 * stream_info = NULL;
+
+    int buffer_size;
+    
+    if(stream_index < ctx->stream_number){
+        stream_info = &ctx->stream_infos[stream_index];
+
+        // if the video frame
+        if(stream_info->codec_type == AVMEDIA_TYPE_VIDEO){
+            // get the buffer size
+            buffer_size = smem_queue_size(ctx->sctx);
+
+            // if buffer will full, should free the frame
+            if(buffer_size >= (SMEM_MAX_QUEUE_LENGTH/2)){
+                return 1;
+            }
+        }
+
+    }
+
+    return 0;
+}
+
 static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 {
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet\n");
@@ -431,7 +451,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             // get the memory ptr
             mem_ptr = shmat(mem_id, 0, 0);
             if(mem_ptr == (void *)-1){
-                //av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error.\n", mem_id);
+                av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error.\n", mem_id);
                 smemFreeShareMemory(ctx->sctx, mem_id);
                 //av_log(avctx, AV_LOG_ERROR, "get share memory(%d) pointer error and free over.\n", mem_id);
                 av_usleep(10);
@@ -440,10 +460,20 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             //av_log(avctx, AV_LOG_VERBOSE, "get memory mem_ptr: %ld\n", mem_ptr);
             m_info = (struct memory_info2 * )mem_ptr;
 
-            // fixme: need rebuild the timestamp
+            // rebuild the timestamp
             if(rebuild_timestamp(avctx, m_info, &out_pts, &out_dts) < 0){
+                ret = shmdt(mem_ptr); // free the share memory local ptr
                 smemFreeShareMemory(ctx->sctx, mem_id);
                 continue;
+            }
+
+            // if the share memory buffer will full, skip the video frame
+            if(if_free_frame(avctx, m_info->index)){
+                av_log(avctx, AV_LOG_WARNING, "The share memory will full, free the frame, index=%d\n", m_info->index);
+
+                ret = shmdt(mem_ptr); // free the share memory local ptr
+                smemFreeShareMemory(ctx->sctx, mem_id);
+                continue; 
             }
 
             
@@ -464,12 +494,6 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
                 pkt->stream_index, ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den, pkt->pts, pkt->size, pkt->data,
                 mem_ptr, m_info->data_offset, m_info->data_size, ret);
 
-            //av_log(avctx, AV_LOG_VERBOSE, "memcpy\n");
-            #ifdef TEST_FILE_OUT
-                if(ctx->yuv_file && ctx->stream_infos[pkt->stream_index].codec_type == AVMEDIA_TYPE_VIDEO){
-                    fwrite(pkt->data, m_info->data_size, 1, ctx->yuv_file);
-                }
-            #endif 
 
             // free the share memory 
             if(mem_ptr){
@@ -508,12 +532,11 @@ av_cold static int ff_smem_read_close(AVFormatContext *avctx)
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_close\n");
     struct smem_dec_ctx * ctx = avctx->priv_data;
 
-    #ifdef TEST_FILE_OUT
-        if(ctx->yuv_file){
-            fclose(ctx->yuv_file);
-            ctx->yuv_file = NULL;
-        }
-    #endif 
+    if(ctx->sctx)
+        smemFree(ctx->sctx);
+
+    if(ctx->stream_infos)
+        av_free(ctx->stream_infos);
 
     return 0;
 }

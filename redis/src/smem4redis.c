@@ -63,14 +63,13 @@ void smemgetCommand(client *c)
             if((smem_p->state == SMEM_T_STATE_AVAILAVLE) && (size <= smem_p->size)){
                 
                 smem_p->state = SMEM_T_STATE_USED;
-                smem_p->cnt ++;
+                smem_p->cnt = 1;
+                smem_p->free_cnt = 0;
                 smem_p->last_time = server.unixtime;
                 mem_id = smem_p->id;
 
-
                 // move it to used list
                 smemlistMoveNode(server.smem_list_available, server.smem_list_used, ln);
-
 
                 break;
             } 
@@ -93,6 +92,7 @@ void smemgetCommand(client *c)
                         smem_p->size = size;
                         smem_p->state = SMEM_T_STATE_USED;
                         smem_p->cnt = 1;
+                        smem_p->free_cnt = 0;
                         smem_p->last_time = server.unixtime;
                         
                         // add itme to list
@@ -129,6 +129,7 @@ void smemfreeCommand(client *c)
     listNode *lnode;
 
     int j;
+    int ret;
 
 
     for (j = 1; j < c->argc; j++){
@@ -143,18 +144,32 @@ void smemfreeCommand(client *c)
             if(lnode){
                 // 
                 smem_p = lnode->value;
-                if(smem_p->cnt > 0){
-                    smem_p->cnt--;
-                }
+                smem_p->cnt--;
 
-                if(smem_p->cnt == 0){
+                if(smem_p->cnt <= 0){
                     smem_p->state = SMEM_T_STATE_AVAILAVLE;
                     // add the item to smem_list_available
                     smemlistMoveNode(server.smem_list_used, server.smem_list_available, lnode);
+
+                    /*
+                    // add for test 
+                    // free the share memory
+                    ret = smem_free_buffer(mem_id);
+                    if(ret == 0){
+                        server.share_memory_size -= smem_p->size;
+                        // delete the node
+                        listDelNode(server.smem_list_used, lnode);
+                    }else{
+                        serverLog(LL_WARNING,"[smemfreeCommand] smem_free_buffer failed  ret=%d.", ret);
+                    }
+                    */
                 }
 
                 free_cnt ++;
 
+            }else{
+                //serverLog(LL_WARNING,"[smemfreeCommand] not found the id(%d) in list, try to free.", mem_id);
+                smem_free_buffer(mem_id);
             }
         }
         
@@ -195,7 +210,7 @@ void smemrmCommand(client *c)
                 listDelNode(server.smem_list_available, lnode);
 
             }else
-                //serverLog(LL_WARNING,"[smemrmCommand] not found the id(%d) in list, try to free.", mem_id);
+                serverLog(LL_WARNING,"[smemrmCommand] not found the id(%d) in list, try to free.", mem_id);
 
             if(!smem_free_buffer(mem_id)){
                 free_cnt ++;
@@ -399,6 +414,7 @@ void smemFreeShareMemory(int timeout)
     listIter li;
     struct smem_t * smem_p = NULL;
     int available_free_cnt = 0, used_free_cnt = 0;
+    int ret;
 
     // get buffer from list
     listRewind(server.smem_list_available, &li);
@@ -410,13 +426,20 @@ void smemFreeShareMemory(int timeout)
 
             server.share_memory_size -= smem_p->size;
 
-            // delete the node
-            listDelNode(server.smem_list_available, ln);
-
             // free the share memory
-            smem_free_buffer(mem_id);
+            ret = smem_free_buffer(mem_id);
+            if(ret == 0){
+                // delete the node
+                listDelNode(server.smem_list_available, ln);
+                available_free_cnt++;
+            }else{
+                smem_p->free_cnt++;
+                serverLog(LL_WARNING,"[smemFreeShareMemory] available_free_cnt smem_free_buffer failed  ret=%d, free_cnt=%d.", ret,smem_p->free_cnt);
+                if(smem_p->free_cnt > 5){
+                    listDelNode(server.smem_list_available, ln);
+                }
+            }
 
-            available_free_cnt++;
         }
     }
 
@@ -429,14 +452,23 @@ void smemFreeShareMemory(int timeout)
             mem_id = smem_p->id;
             server.share_memory_size -= smem_p->size;
 
-            // delete the node
-            listDelNode(server.smem_list_used, ln);
-
             // free the share memory
-            smem_free_buffer(mem_id);
-            used_free_cnt++;
+            ret = smem_free_buffer(mem_id);
+            if(ret == 0){
+                // delete the node
+                listDelNode(server.smem_list_used, ln);
+                used_free_cnt++;
+            }else{
+                smem_p->free_cnt++;
+                serverLog(LL_WARNING,"[smemFreeShareMemory] smem_list_used smem_free_buffer failed  ret=%d, free_cnt=%d.", ret,smem_p->free_cnt);
+                if(smem_p->free_cnt > 5){
+                    listDelNode(server.smem_list_used, ln);
+                }
+            }
+            
         }
     }
-    serverLog(LL_VERBOSE,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, smem_list_used:%d, used_free_cnt=%d.", 
+
+    serverLog(LL_NOTICE,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, smem_list_used:%d, used_free_cnt=%d.", 
         server.smem_list_available->len, available_free_cnt, server.smem_list_used->len, used_free_cnt);
 }
