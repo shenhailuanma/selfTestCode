@@ -23,7 +23,7 @@ pushd ${build_dir}
     then
         # download redis
         echo "########## to download ffmpeg ##########"
-        wget wget http://125.39.35.134/files/20670000082F10B6/download.redis.io/releases/redis-3.2.0.tar.gz
+        wget http://125.39.35.134/files/20670000082F10B6/download.redis.io/releases/redis-3.2.0.tar.gz
         echo "########## redis has download over ##########"
     else
         echo "########## redis has download ##########"
