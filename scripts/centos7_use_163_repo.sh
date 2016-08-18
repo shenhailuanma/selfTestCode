@@ -3,7 +3,9 @@
 # the script is based "http://mirrors.163.com/.help/centos.html"
 
 # 1. backup
-mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+if [ -e "/etc/yum.repos.d/CentOS-Base.repo" ]; then
+    mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+fi
 
 # 2. create the repo file
 echo '# CentOS-Base.repo
