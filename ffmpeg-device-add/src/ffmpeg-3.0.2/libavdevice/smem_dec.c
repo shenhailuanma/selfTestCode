@@ -338,9 +338,6 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
 
             dt = ctx->first_in_ts[m_info->index] - ctx->first_in_ts[0]; // the dt of the new streams
 
-            //av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] first_in_ts[%d]:%lld - ctx->first_in_ts[0]:%lld = %lld\n", 
-            //    m_info->index, ctx->first_in_ts[m_info->index], ctx->first_in_ts[0], dt);
-
             // the streams out ts should same as dt
             *out_dts = ctx->last_out_ts[0] + SMEM_NUM_IN_RANGE(dt, ctx->should_duration[m_info->index], 10*ctx->should_duration[m_info->index]);
 
@@ -350,29 +347,6 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info2 * m_inf
                 return -1;
             }
 
-            /*
-            dt = dts - ctx->last_in_ts[0]; // will 
-
-            if(ctx->last_out_ts[m_info->index] >= (ctx->last_out_ts[0] + dt) ){
-
-
-            }
-
-
-            // 
-            if((ctx->last_out_ts[m_info->index] + dt ) >= ctx->last_out_ts[0]){
-                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last stream:0 dts: %lld, the new dts: %lld, last_out_ts:%lld, last_out_ts[0]:%lld\n", 
-                    m_info->index, ctx->last_in_ts[0], dts, ctx->last_out_ts[m_info->index], ctx->last_out_ts[0]);
-                return -1;
-            }else{
-                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] ok index:%d, last stream:0 dts: %lld, the new dts: %lld, last_out_ts:%lld, last_out_ts[0]:%lld\n", 
-                    m_info->index, ctx->last_in_ts[0], dts, ctx->last_out_ts[m_info->index], ctx->last_out_ts[0]);
-
-            }
-            */
-
-            //*out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[0]);
-            //*out_dts = ctx->last_out_ts[m_info->index] + ctx->should_duration[m_info->index];
 
 
         }else{
@@ -547,7 +521,7 @@ av_cold static int ff_smem_read_close(AVFormatContext *avctx)
 #define ENC AV_OPT_FLAG_ENCODING_PARAM
 
 static const AVOption options[] = {
-    { "timeout", "set maximum timeout (in seconds)", OFFSET(timeout), AV_OPT_TYPE_INT, {.i64 = 5}, INT_MIN, INT_MAX, DEC },
+    { "timeout", "set maximum timeout (in seconds)", OFFSET(timeout), AV_OPT_TYPE_INT, {.i64 = 10}, INT_MIN, INT_MAX, DEC },
     { NULL },
 };
 

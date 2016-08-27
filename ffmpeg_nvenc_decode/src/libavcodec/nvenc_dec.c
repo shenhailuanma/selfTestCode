@@ -990,11 +990,12 @@ static int nvenc_open_decoder(NvencDecContext *ctx, int width, int height)
     ctx->video_decode_create_info.ulNumDecodeSurfaces = 20; // fixme
     // Limit decode memory to 24MB (16M pixels at 4:2:0 = 24M bytes)
     // Keep atleast 6 DecodeSurfaces
+    /*
     while (ctx->video_decode_create_info.ulNumDecodeSurfaces > 6 && 
         ctx->video_decode_create_info.ulNumDecodeSurfaces * ctx->video_decode_create_info.ulWidth * ctx->video_decode_create_info.ulHeight > 16 * 1024 * 1024)
     {
         ctx->video_decode_create_info.ulNumDecodeSurfaces--;
-    }
+    }*/
     av_log(NULL, AV_LOG_INFO, "[nvenc_open_decoder] ulWidth=%d, ulHeight=%d, ulNumDecodeSurfaces=%d.\n", 
         ctx->video_decode_create_info.ulWidth, ctx->video_decode_create_info.ulHeight, ctx->video_decode_create_info.ulNumDecodeSurfaces);
 
@@ -1350,7 +1351,7 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     ctx->video_codec = ctx->video_parser_params.CodecType;
 
     //ctx->video_parser_params.ulMaxNumDecodeSurfaces = ctx->video_decode_create_info.ulNumDecodeSurfaces; // same as decoder 
-    ctx->video_parser_params.ulMaxNumDecodeSurfaces = 6; // same as decoder 
+    ctx->video_parser_params.ulMaxNumDecodeSurfaces = 20; // same as decoder 
     ctx->video_parser_params.ulMaxDisplayDelay      = 1;  // this flag is needed so the parser will push frames out to the decoder as quickly as it can
     ctx->video_parser_params.pUserData              = ctx; // user data we just send the ctx
     ctx->video_parser_params.pfnSequenceCallback    = HandleVideoSequence;    // Called before decoding frames and/or whenever there is a format change
