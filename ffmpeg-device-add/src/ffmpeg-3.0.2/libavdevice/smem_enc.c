@@ -37,6 +37,7 @@ static const AVCodecTag smem_codec_ids[] = {
 
 
 struct memory_info {
+    int id;
     int index;  // stream index
     int64_t pts;
     int64_t dts;
@@ -241,6 +242,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     // set the memory info
     struct memory_info * m_info = (struct memory_info * )mem_ptr;
+    m_info->id = mem_id;
     m_info->index = pkt->stream_index;
     //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
     m_info->pts = pkt->pts; // fixme:
@@ -330,6 +332,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     // set the memory info
     struct memory_info * m_info = (struct memory_info * )mem_ptr;
+    m_info->id = mem_id;
     m_info->index = pkt->stream_index;
     //m_info->pts = av_rescale_q(pkt->pts, ctx->stream_infos[pkt->stream_index].time_base, AV_TIME_BASE_Q);
     m_info->pts = pkt->pts; // fixme:

@@ -5,6 +5,8 @@
 #include "libavformat/internal.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/time.h"
+#include "libavutil/buffer.h"
+#include "libavutil/buffer_internal.h"
 
 #include "smem_dec.h"
 #include "smem_client.h"
@@ -12,6 +14,7 @@
 #include <string.h>
 
 struct memory_info2 {
+    int id;
     int index;  // stream index
     int64_t pts;
     int64_t dts;
@@ -85,7 +88,10 @@ typedef struct smem_dec_ctx {
 
 }smem_dec_ctx;
 
-
+typedef struct smem_buffer_opaque {
+    struct smemContext * sctx;
+    struct memory_info2 * m_info;
+}smem_buffer_opaque;
 
 static int get_stream_info(AVFormatContext *avctx)
 {
@@ -395,6 +401,31 @@ static int if_free_frame(AVFormatContext *avctx, int stream_index)
     return 0;
 }
 
+static void ff_smem_av_buffer_free(void *opaque, uint8_t *data)
+{
+
+    smem_buffer_opaque * smem_opaque = opaque;
+
+    uint8_t *mem_ptr = smem_opaque->m_info;
+    int ret;
+
+    int mem_id = smem_opaque->m_info->id;
+
+    // free the share memory 
+    if(mem_ptr){
+        ret = shmdt(mem_ptr);
+        if(ret < 0){
+            return;
+        }
+    }
+
+    // free the memory id
+    smemFreeShareMemory(smem_opaque->sctx, mem_id);
+
+    av_free(opaque);
+} 
+
+
 static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 {
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_read_packet\n");
@@ -415,7 +446,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
     int64_t out_pts;
     int64_t out_dts;
 
-    av_init_packet(pkt);
+    //av_init_packet(pkt);
     while(1){
         // get memory 
         mem_id = smemGetShareMemory(ctx->sctx, 0);
@@ -455,7 +486,10 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
             //av_log(avctx, AV_LOG_VERBOSE, "data_size: %d\n", m_info->data_size);
 
-            av_new_packet(pkt, m_info->data_size);
+            #if 1
+            // copy data
+            av_new_packet(pkt, m_info->data_size); // alloc memory to carrying the data 
+
             pkt->stream_index = m_info->index;
             pkt->pts = out_pts;
             pkt->dts = out_dts;
@@ -482,6 +516,55 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             // free the memory id
             smemFreeShareMemory(ctx->sctx, mem_id);
 
+            #else
+            // no copy data
+            pkt->stream_index = m_info->index;
+            pkt->pts = out_pts;
+            pkt->dts = out_dts;
+            if(m_info->is_key)
+                pkt->flags |= AV_PKT_FLAG_KEY;
+
+            AVBuffer *buf = NULL;
+            AVBufferRef *ref = NULL;
+            buf = av_mallocz(sizeof(AVBuffer));
+            if (!buf){
+                av_log(avctx, AV_LOG_ERROR, "av_mallocz AVBuffer failed.\n");
+                return -1;
+            }
+            buf->data     = mem_ptr + m_info->data_offset;
+            buf->size     = m_info->data_size;
+            buf->free     = ff_smem_av_buffer_free;
+
+            smem_buffer_opaque * opaque = av_mallocz(sizeof(smem_buffer_opaque));
+            if(!opaque){
+                av_log(avctx, AV_LOG_ERROR, "av_mallocz smem_buffer_opaque failed.\n");
+                return -1;
+            }
+            opaque->sctx = ctx->sctx;
+            opaque->m_info = m_info;
+            buf->opaque   = opaque;
+            buf->refcount = 1;
+
+            ref = av_mallocz(sizeof(AVBufferRef));
+            if (!ref) {
+                av_freep(&buf);
+                av_log(avctx, AV_LOG_ERROR, "av_mallocz AVBuffer failed.\n");
+                return -1;
+            }
+
+            ref->buffer = buf;
+            ref->data   = buf->data;
+            ref->size   = buf->size;
+
+            pkt->buf      = ref;
+            pkt->data     = ref->data;
+            pkt->size     = ref->size;
+
+            #endif
+
+
+
+            // get data, break
             break;
         
         }
