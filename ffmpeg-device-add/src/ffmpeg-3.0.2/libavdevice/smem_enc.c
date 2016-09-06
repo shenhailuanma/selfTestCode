@@ -8,7 +8,8 @@
 
 #include <string.h>
 
-#include "smem_enc.h"
+#include "smem.h"
+#include "smem_com.h"
 #include "smem_client.h"
 
 
@@ -36,40 +37,6 @@ static const AVCodecTag smem_codec_ids[] = {
 };
 
 
-struct memory_info {
-    int id;
-    int index;  // stream index
-    int64_t pts;
-    int64_t dts;
-    int stream_info_offset;
-    int stream_info_number;
-    int data_offset;
-    int data_size;
-    int is_key;
-};
-
-struct stream_info {
-    int index; 
-
-    enum AVMediaType codec_type;
-    enum AVCodecID     codec_id;
-    AVRational time_base;
-
-    /* video */
-    int width;
-    int height;
-    enum AVPixelFormat pix_fmt;
-    int video_extradata_size;
-    uint8_t video_extradata[128];
-
-    /* audio */
-    int sample_rate; ///< samples per second
-    int channels;    ///< number of audio channels
-    enum AVSampleFormat sample_fmt;  ///< sample format
-    int audio_extradata_size;
-    uint8_t audio_extradata[128];
-    /* other stream not support yet */
-};
 
 struct smem_enc_ctx {
     const AVClass *class;
@@ -79,6 +46,7 @@ struct smem_enc_ctx {
     int stream_number;
     struct stream_info * stream_infos;
     int stream_info_size;
+    int pic_size;
 
 
     /* Params */
@@ -101,6 +69,8 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header begin\n");
 
     struct smem_enc_ctx * ctx = avctx->priv_data;
+
+    ctx->pic_size = 0;
 
     /* get the input stream url, the stream format should be like :  "smem://127.0.0.1:6379/channel_name"*/
     av_log(avctx, AV_LOG_VERBOSE, "channel name:%s\n", avctx->filename);
@@ -133,14 +103,15 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header stream[%d] is audio stream.\n", n);
 
             ctx->stream_infos[n].index = n;
-            ctx->stream_infos[n].codec_type = AVMEDIA_TYPE_AUDIO;
-            ctx->stream_infos[n].codec_id = c->codec_id;
-            ctx->stream_infos[n].time_base = c->time_base;
+            ctx->stream_infos[n].codec_type = SMEM_MEDIA_TYPE_AUDIO;
+            ctx->stream_infos[n].codec_id = av2smem_codec_id(c->codec_id);
+            ctx->stream_infos[n].time_base.den = c->time_base.den;
+            ctx->stream_infos[n].time_base.num = c->time_base.num;
             //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
             ctx->stream_infos[n].sample_rate = c->sample_rate;
             ctx->stream_infos[n].channels = c->channels;
-            ctx->stream_infos[n].sample_fmt = c->sample_fmt;
+            ctx->stream_infos[n].sample_fmt = av2smem_sample_fmt(c->sample_fmt);
             ctx->stream_infos[n].audio_extradata_size = c->extradata_size;
             if(c->extradata_size > 0){
                 memcpy(ctx->stream_infos[n].audio_extradata, c->extradata, c->extradata_size);
@@ -157,19 +128,21 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
 
 
             ctx->stream_infos[n].index = n;
-            ctx->stream_infos[n].codec_type = AVMEDIA_TYPE_VIDEO;
-            ctx->stream_infos[n].codec_id = c->codec_id;
-            //ctx->stream_infos[n].codec_id = AV_CODEC_ID_RAWVIDEO;
-            ctx->stream_infos[n].time_base = c->time_base;
+            ctx->stream_infos[n].codec_type = SMEM_MEDIA_TYPE_VIDEO;
+            ctx->stream_infos[n].codec_id = av2smem_codec_id(c->codec_id);
+            ctx->stream_infos[n].time_base.den = c->time_base.den;
+            ctx->stream_infos[n].time_base.num = c->time_base.num;
             //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
             ctx->stream_infos[n].width = c->width;
             ctx->stream_infos[n].height = c->height;
-            ctx->stream_infos[n].pix_fmt = c->pix_fmt;
+            ctx->stream_infos[n].pix_fmt = av2smem_pix_fmt(c->pix_fmt);
             ctx->stream_infos[n].video_extradata_size = c->extradata_size;
             if(c->extradata_size > 0){
                 memcpy(ctx->stream_infos[n].video_extradata, c->extradata, c->extradata_size);
             }
+
+            ctx->pic_size = av_image_get_buffer_size(c->pix_fmt, c->width, c->height, 1);
 
             av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header video, codec_id=%d, pix_fmt=%d, width=%d, height=%d, extradata_size=%d.\n", 
                 c->codec_id, c->pix_fmt, c->width, c->height, c->extradata_size);
@@ -216,7 +189,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
     int ret;
 
     // get the mem_size
-    int pic_size = av_image_get_buffer_size(ctx->stream_infos[pkt->stream_index].pix_fmt, ctx->stream_infos[pkt->stream_index].width, ctx->stream_infos[pkt->stream_index].height, 1);
+    int pic_size = ctx->pic_size;
     int mem_size = sizeof(struct memory_info) + ctx->stream_info_size + pic_size;
 
     av_log(avctx, AV_LOG_VERBOSE, "[ff_smem_write_video_packet], sizeof(memory_info)=%d, tream_info_size=%d, pic_size=%d\n", 

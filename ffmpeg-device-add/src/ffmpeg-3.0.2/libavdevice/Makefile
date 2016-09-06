@@ -10,8 +10,8 @@ OBJS    = alldevices.o                                                  \
           utils.o                                                       \
 
 # input/output devices
-OBJS-$(CONFIG_SMEM_INDEV)                += smem_dec.o smem_client.o
-OBJS-$(CONFIG_SMEM_OUTDEV)               += smem_enc.o smem_client.o
+OBJS-$(CONFIG_SMEM_INDEV)                += smem_dec.o smem_client.o smem_com.o
+OBJS-$(CONFIG_SMEM_OUTDEV)               += smem_enc.o smem_client.o smem_com.o
 OBJS-$(CONFIG_ALSA_INDEV)                += alsa_dec.o alsa.o timefilter.o
 OBJS-$(CONFIG_ALSA_OUTDEV)               += alsa_enc.o alsa.o
 OBJS-$(CONFIG_AVFOUNDATION_INDEV)        += avfoundation.o
