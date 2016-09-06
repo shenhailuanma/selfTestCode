@@ -118,7 +118,7 @@ int main(int argc, char **argv)
             rate = (float)cnt/(now_time-start_time);
 
         printf("cnt=%d, time=%d, rate=%f\n", cnt, now_time-start_time, rate);
-        //sleep(1);
+        sleep(1);
     }
 
     return 0;

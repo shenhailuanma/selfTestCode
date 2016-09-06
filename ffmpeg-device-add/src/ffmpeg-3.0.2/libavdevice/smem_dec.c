@@ -569,7 +569,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
         
         }
 
-        av_usleep(1);
+        av_usleep(20000);
 
         // when timeout break
         if(av_gettime_relative() - last_time > ctx->timeout*1000000){

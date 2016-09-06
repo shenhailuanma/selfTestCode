@@ -25,8 +25,10 @@ int main(void)
 
             // free the memory id
             smemFreeShareMemory(ctx, mem_id);
+        }else{
+            sleep(1);
         }
-
+        
     }
 
 
