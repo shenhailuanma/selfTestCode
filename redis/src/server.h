@@ -938,6 +938,7 @@ struct redisServer {
 
     /* share memory Pubsub */
     dict *smempubsub_channels; /* Map channels to list of subscribed clients , add by zx for smem */
+    dict *smempubsub_memorys; /* add by zx for smem */
     list *smem_list_used;   /* add by zx for smem */
     list *smem_list_available;   /* add by zx for smem */
     size_t  share_memory_size; /* add by zx for smem */

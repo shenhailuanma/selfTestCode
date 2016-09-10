@@ -663,6 +663,16 @@ dictType replScriptCacheDictType = {
     NULL                        /* val destructor */
 };
 
+/* add by zhangxu for share memory dict */
+dictType smemDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictObjectDestructor,  /* key destructor */
+    NULL          /* val destructor */
+};
+
 int htNeedsResize(dict *dict) {
     long long size, used;
 
@@ -1917,6 +1927,7 @@ void initServer(void) {
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
 
     server.smempubsub_channels = dictCreate(&keylistDictType,NULL);  // add by zx for smem
+    server.smempubsub_memorys = dictCreate(&smemDictType,NULL);  // add by zx for smem
     server.smem_list_used = listCreate(); // add by zx for smem
     listSetFreeMethod(server.smem_list_used, zfree);        // add by zx for smem
     listSetMatchMethod(server.smem_list_used, smemListMatch);  // add by zx for smem

@@ -30,6 +30,56 @@ void smemlistMoveNode(list *list_src, list *list_dst, listNode *node)
     list_dst->len++;
 }
 
+void smemlistAddNodeTail(list *list_dst, listNode *node)
+{
+    // add to dst list
+    if (list_dst->len == 0) {
+        list_dst->head = list_dst->tail = node;
+        node->prev = node->next = NULL;
+    } else {
+        node->prev = NULL;
+        node->next = list_dst->head;
+        list_dst->head->prev = node;
+        list_dst->head = node;
+    }
+
+    list_dst->len++;
+}
+
+void smemlistMoveNodeToDict(list *list_src, dict *dict_dst, listNode *node)
+{
+    // del from src list
+    if (node->prev)
+        node->prev->next = node->next;
+    else
+        list_src->head = node->next;
+    if (node->next)
+        node->next->prev = node->prev;
+    else
+        list_src->tail = node->prev;
+
+    list_src->len--;
+
+    node->prev = NULL;
+    node->next = NULL;
+
+    struct smem_t * smem_p = node->value;
+
+    // add to dst list
+    dictEntry *de;
+    de = dictFind(dict_dst,createObject(OBJ_STRING,sdsfromlonglong(smem_p->id)));
+    if(de == NULL){
+        dictAdd(dict_dst, createObject(OBJ_STRING,sdsfromlonglong(smem_p->id)), node);
+    }
+
+}
+
+void smemDictMoveNodeToList(dict *dict_src, list * list_dst, listNode *node)
+{
+    // delete from dict
+
+    // add to list
+}
 
 int smemListMatch(void *ptr, void *key) {
     struct smem_t *smem_p = ptr;
@@ -48,17 +98,22 @@ void smemgetCommand(client *c)
     listIter li;
     struct smem_t * smem_p = NULL;
 
+    robj *smem_size_obj = c->argv[1];
+
+
     // check the size
 
-    if(getLongLongFromObject(c->argv[1],&ll_size) == C_OK){
+    if(getLongLongFromObject(smem_size_obj, &ll_size) == C_OK){
         //serverLog(LL_WARNING,"[smemgetCommand] will get share memory size: %lld", ll_size);
         size = ll_size;
         
         // get buffer from list
+        /*
         listRewind(server.smem_list_available, &li);
         while ((ln = listNext(&li)) != NULL) {
             smem_p = ln->value;
 
+            //serverLog(LL_WARNING,"[smemgetCommand] 0, state=%d, cnt=%d, size=%d", smem_p->state, smem_p->cnt, smem_p->size);
             // compare the size
             if((smem_p->state == SMEM_T_STATE_AVAILAVLE) && (size <= smem_p->size)){
                 
@@ -68,18 +123,20 @@ void smemgetCommand(client *c)
                 smem_p->last_time = server.unixtime;
                 mem_id = smem_p->id;
 
-                // move it to used list
-                smemlistMoveNode(server.smem_list_available, server.smem_list_used, ln);
+                // move it to memory dict
+                smemlistMoveNodeToDict(server.smem_list_available, server.smempubsub_memorys, ln);
 
                 break;
             } 
         }
-        
+        */
+
         if(mem_id == -1){
             // check the share memory max limit
             if((server.share_memory_size + size) <= server.share_memory_limit){
                 // get buffer by use smem
                 mem_id = smem_get_buffer(size);
+
 
                 if(mem_id != -1){
                     
@@ -95,11 +152,28 @@ void smemgetCommand(client *c)
                         smem_p->free_cnt = 0;
                         smem_p->last_time = server.unixtime;
                         
-                        // add itme to list
-                        listAddNodeTail(server.smem_list_used, smem_p);
 
-                        // update the share memory used status
-                        server.share_memory_size += size;
+                        // add to dict
+                        listNode *node = zmalloc(sizeof(*node));
+
+                        if(node){
+                            node->value = smem_p;
+
+                            //robj * smem_obj = createStringObjectFromLongLong(smem_p->id);
+                            robj * smem_obj = createObject(OBJ_STRING,sdsfromlonglong(smem_p->id));
+                            incrRefCount(smem_obj);
+
+
+                            dictAdd(server.smempubsub_memorys, smem_obj, node);
+
+                            // update the share memory used status
+                            server.share_memory_size += size;
+                        }else{
+                            mem_id = -1;
+                            serverLog(LL_WARNING,"[smemgetCommand] listNode zmalloc failed.");
+                            zfree(smem_p);
+                        }
+
 
                     }
                     
@@ -131,47 +205,51 @@ void smemfreeCommand(client *c)
     int j;
     int ret;
 
+    robj *smem_obj = NULL;
+    dictEntry *de;
+
 
     for (j = 1; j < c->argc; j++){
+        smem_obj = c->argv[j];
 
+        // get the info from dict by key
+        de = dictFind(server.smempubsub_memorys, smem_obj);
 
-        if(getLongLongFromObject(c->argv[j],&ll_var) == C_OK){
-            //serverLog(LL_WARNING,"[smemfreeCommand] get share memory id: %lld", ll_var);
-            mem_id = ll_var;
+        if(de){
+            lnode = dictGetVal(de);
 
-            // get the item from list
-            lnode = listSearchKey(server.smem_list_used, &mem_id);
             if(lnode){
-                // 
                 smem_p = lnode->value;
                 smem_p->cnt--;
 
-                if(smem_p->cnt <= 0){
+                if(smem_p->cnt <= 0 && smem_p->state == SMEM_T_STATE_USED){
                     smem_p->state = SMEM_T_STATE_AVAILAVLE;
-                    // add the item to smem_list_available
-                    smemlistMoveNode(server.smem_list_used, server.smem_list_available, lnode);
+                    smem_p->cnt = 0;
+                    smem_p->last_time = server.unixtime;
 
-                    /*
-                    // add for test 
-                    // free the share memory
-                    ret = smem_free_buffer(mem_id);
-                    if(ret == 0){
-                        server.share_memory_size -= smem_p->size;
-                        // delete the node
-                        listDelNode(server.smem_list_used, lnode);
-                    }else{
-                        serverLog(LL_WARNING,"[smemfreeCommand] smem_free_buffer failed  ret=%d.", ret);
-                    }
-                    */
+                    // add the item to smem_list_available
+                    //smemlistAddNodeTail(server.smem_list_available, lnode);
+                    //smemlistMoveNode(server.smem_list_used, server.smem_list_available, lnode);
+
+                    // for test , to free
+                    server.share_memory_size -= smem_p->size;
+                    smem_free_buffer(smem_p->id);
+                    zfree(smem_p);
+                    zfree(lnode);
+                    dictDelete(server.smempubsub_memorys, smem_obj);
+
                 }
 
                 free_cnt ++;
-
-            }else{
-                //serverLog(LL_WARNING,"[smemfreeCommand] not found the id(%d) in list, try to free.", mem_id);
+            }
+            
+        }else{
+            if(getLongLongFromObject(smem_obj,&ll_var) == C_OK){
+                mem_id = ll_var;
                 smem_free_buffer(mem_id);
             }
         }
+
         
     }
 
@@ -350,18 +428,12 @@ int smempubsubPublishMessage(robj *channel, robj *message)
     long long ll_var;
 
     /* Get the share memory id */
-    if(getLongLongFromObject(message,&ll_var) == C_OK){
-        //serverLog(LL_WARNING,"[smempubsubPublishMessage] get share memory id: %lld", ll_var);
-        mem_id = ll_var;
+    de = dictFind(server.smempubsub_memorys,message);
+    if(de){
+        lnode = dictGetVal(de);
 
-
-        // get the item from list
-        lnode = listSearchKey(server.smem_list_used, &mem_id);
         if(lnode){
             smem_p = lnode->value;
-        }else{
-            //serverLog(LL_WARNING,"[smempubsubPublishMessage] not found the id(%d) in list.", mem_id);
-            mem_id = -1;
         }
     }
 
@@ -415,6 +487,7 @@ void smemFreeShareMemory(int timeout)
     struct smem_t * smem_p = NULL;
     int available_free_cnt = 0, used_free_cnt = 0;
     int ret;
+    long long ll_var;
 
     // get buffer from list
     listRewind(server.smem_list_available, &li);
@@ -432,43 +505,75 @@ void smemFreeShareMemory(int timeout)
                 // delete the node
                 listDelNode(server.smem_list_available, ln);
                 available_free_cnt++;
+
+                dictDelete(server.smempubsub_memorys, createObject(OBJ_STRING,sdsfromlonglong(mem_id)));
+
             }else{
                 smem_p->free_cnt++;
-                serverLog(LL_WARNING,"[smemFreeShareMemory] available_free_cnt smem_free_buffer failed  ret=%d, free_cnt=%d.", ret,smem_p->free_cnt);
                 if(smem_p->free_cnt > 5){
                     listDelNode(server.smem_list_available, ln);
+                    dictDelete(server.smempubsub_memorys, createObject(OBJ_STRING,sdsfromlonglong(mem_id)));
                 }
             }
 
         }
     }
+   
+    /*
+    dictIterator *di = dictGetSafeIterator(server.smempubsub_memorys);
+    //dictIterator *di = dictGetIterator(server.smempubsub_memorys);
+    dictEntry *de;
+    while((de = dictNext(di)) != NULL) {
+        ln = dictGetVal(de);
+        robj * key = dictGetKey(de);
 
-    timeout += 5;
-    listRewind(server.smem_list_used, &li);
-    while ((ln = listNext(&li)) != NULL) {
+        //serverLog(LL_WARNING,"[smemFreeShareMemory] 1.");
+
+        getLongLongFromObject(key,&ll_var);
+
+        //de = dictFind(server.smempubsub_memorys, key);
+        //if(de == NULL){
+        //    serverLog(LL_WARNING,"[smemFreeShareMemory] not get key.");
+        //    continue;
+        //}
+        //ln = dictGetVal(de);
+
         smem_p = ln->value;
 
+        //serverLog(LL_WARNING,"[smemFreeShareMemory] 1, id=%d, size=%d, state=%d, cnt=%d, free_cnt=%d, last_time=%d, ll_var=%lld", 
+        //    smem_p->id, smem_p->size, smem_p->state, smem_p->cnt, smem_p->free_cnt, smem_p->last_time, ll_var );
         if( (server.unixtime - smem_p->last_time) > timeout){
             mem_id = smem_p->id;
             server.share_memory_size -= smem_p->size;
-
+            //serverLog(LL_WARNING,"[smemFreeShareMemory] 2, mem_id=%d.", mem_id);
             // free the share memory
             ret = smem_free_buffer(mem_id);
             if(ret == 0){
+                //serverLog(LL_WARNING,"[smemFreeShareMemory] 3.");
+                zfree(smem_p);
+                zfree(ln);
+                //serverLog(LL_WARNING,"[smemFreeShareMemory] 4.");
                 // delete the node
-                listDelNode(server.smem_list_used, ln);
+                dictDelete(server.smempubsub_memorys, dictGetKey(de));
+                //serverLog(LL_WARNING,"[smemFreeShareMemory] 5.");
                 used_free_cnt++;
             }else{
+                //serverLog(LL_WARNING,"[smemFreeShareMemory] 6.");
                 smem_p->free_cnt++;
-                serverLog(LL_WARNING,"[smemFreeShareMemory] smem_list_used smem_free_buffer failed  ret=%d, free_cnt=%d.", ret,smem_p->free_cnt);
                 if(smem_p->free_cnt > 5){
-                    listDelNode(server.smem_list_used, ln);
+                    zfree(smem_p);
+                    zfree(ln);
+                    // delete the node
+                    dictDelete(server.smempubsub_memorys, dictGetKey(de));
                 }
             }
             
         }
-    }
 
-    serverLog(LL_NOTICE,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, smem_list_used:%d, used_free_cnt=%d.", 
-        server.smem_list_available->len, available_free_cnt, server.smem_list_used->len, used_free_cnt);
+    }
+    dictReleaseIterator(di);
+    */
+
+    serverLog(LL_NOTICE,"[smemFreeShareMemory] smem_list_available:%d, available_free_cnt=%d, dictSize:%d, used_free_cnt=%d.", 
+        server.smem_list_available->len, available_free_cnt, dictSize(server.smempubsub_memorys), used_free_cnt);
 }
