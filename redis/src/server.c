@@ -673,6 +673,9 @@ dictType smemDictType = {
     NULL          /* val destructor */
 };
 
+
+
+
 int htNeedsResize(dict *dict) {
     long long size, used;
 
@@ -1186,8 +1189,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* smem cron add by zx */
     run_with_period(5000) {
         // LL_WARNING LL_VERBOSE LL_NOTICE
-        serverLog(LL_NOTICE,"free the share memory that long time no need, the total_system_mem=%lu, share_memory_size=%lu, share_memory_limit=%lu, smem_list_used=%u, smem_list_available=%u. ", 
-            server.system_memory_size, server.share_memory_size, server.share_memory_limit, server.smem_list_used->len, server.smem_list_available->len);
+        //serverLog(LL_NOTICE,"free the share memory that long time no need, the total_system_mem=%lu, share_memory_size=%lu, share_memory_limit=%lu, smem_list_used=%u, smem_list_available=%u. ", 
+        //    server.system_memory_size, server.share_memory_size, server.share_memory_limit, server.smem_list_used->len, server.smem_list_available->len);
 
         // free the share memory where long time use
         smemFreeShareMemory(5);
@@ -1928,6 +1931,7 @@ void initServer(void) {
 
     server.smempubsub_channels = dictCreate(&keylistDictType,NULL);  // add by zx for smem
     server.smempubsub_memorys = dictCreate(&smemDictType,NULL);  // add by zx for smem
+    server.smempubsub_memorys_available = dictCreate(&smemDictType,NULL);  // add by zx for smem
     server.smem_list_used = listCreate(); // add by zx for smem
     listSetFreeMethod(server.smem_list_used, zfree);        // add by zx for smem
     listSetMatchMethod(server.smem_list_used, smemListMatch);  // add by zx for smem

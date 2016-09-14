@@ -609,6 +609,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     /* smem Pubsub */
     dict *smempubsub_channels; /* channels a client is interested in (SUBSCRIBE), add by zx for smem */
+
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
@@ -939,6 +940,7 @@ struct redisServer {
     /* share memory Pubsub */
     dict *smempubsub_channels; /* Map channels to list of subscribed clients , add by zx for smem */
     dict *smempubsub_memorys; /* add by zx for smem */
+    dict *smempubsub_memorys_available; /* add by zx for smem*/
     list *smem_list_used;   /* add by zx for smem */
     list *smem_list_available;   /* add by zx for smem */
     size_t  share_memory_size; /* add by zx for smem */

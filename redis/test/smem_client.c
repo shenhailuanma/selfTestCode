@@ -190,7 +190,8 @@ static redisContext * smemCreateConnect(const char *ip, int port)
     redisContext * rctx = NULL;
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    rctx = redisConnectWithTimeout(ip, port, timeout);
+    //rctx = redisConnectWithTimeout(ip, port, timeout);
+    rctx = redisConnectUnixWithTimeout("/tmp/redis.sock", timeout);
     if (rctx == NULL || rctx->err) {
 
         if (rctx) {
@@ -218,7 +219,8 @@ struct smemContext * smemCreateProducer(const char *ip, int port, const char *na
     c->port = port;
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    c->rctx = redisConnectWithTimeout(ip, port, timeout);
+    //c->rctx = redisConnectWithTimeout(ip, port, timeout);
+    c->rctx = redisConnectUnixWithTimeout("/tmp/redis.sock", timeout);
     if (c->rctx == NULL || c->rctx->err) {
 
         c->err = SMEM_ERROR_REDIS_CONNECT;
@@ -312,7 +314,8 @@ static void * smemAsyncThread(void * h)
 {
     struct smemContext *c = h;
 
-    c->rasync = redisAsyncConnect(c->url, c->port);
+    //c->rasync = redisAsyncConnect(c->url, c->port);
+    c->rasync = redisAsyncConnectUnix("/tmp/redis.sock");
     if (!c->rasync || c->rasync->err) {
         /* Let *c leak for now... */
         printf("Error: %s\n", c->rasync->errstr);
