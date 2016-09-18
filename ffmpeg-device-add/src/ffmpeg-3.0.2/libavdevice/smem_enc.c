@@ -38,7 +38,7 @@ static const AVCodecTag smem_codec_ids[] = {
 
 
 
-struct smem_enc_ctx {
+typedef struct smem_enc_ctx {
     const AVClass *class;
 
     struct smemContext * sctx;
@@ -51,14 +51,15 @@ struct smem_enc_ctx {
 
     /* Params */
     char ip[64];    /* the share memory server ip address */
-    int  port;      /* the share memory server port */
     char channel[128];  /* the channel in share memory server */
 
     int width;
     int height;
 
     /* Options */
-};
+    char *path; // the unix domain socket path
+    int  port;      /* the share memory server port */
+}smem_enc_ctx;
 
 
 av_cold static int ff_smem_write_header(AVFormatContext *avctx)
@@ -155,7 +156,14 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
 
 
     /* connect to the server */
-    ctx->sctx = smemCreateProducer("127.0.0.1", 6379, avctx->filename);
+    if(ctx->path == NULL){
+        av_log(avctx, AV_LOG_INFO, "use ip socket, ip is '127.0.0.1', port=%d.\n", ctx->port);
+        ctx->sctx = smemCreateProducer("127.0.0.1", ctx->port, avctx->filename);
+    }else{
+        av_log(avctx, AV_LOG_INFO, "use unix domain socket, path is'%s'.\n", ctx->path);
+        ctx->sctx = smemCreateProducerUnix(ctx->path, avctx->filename);
+    }
+
     if(!ctx->sctx || ctx->sctx->err < 0){
         if (ctx->sctx) {
             av_log(avctx, AV_LOG_ERROR,"Connection error: %s\n", ctx->sctx->errstr);
@@ -164,8 +172,6 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             av_log(avctx, AV_LOG_ERROR,"Connection error: can't allocate redis context\n");
         }
     }
-
-
 
     av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header over\n");
 
@@ -249,8 +255,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
         m_info->stream_info_offset, m_info->data_offset, m_info->data_size, ret);
 
 
-    // publish share memory id
-    smemPublish(ctx->sctx, mem_id);   // publish the memory
+
 
     // release share memory
     if(mem_ptr){
@@ -261,9 +266,11 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
         }
     }
 
-    
+    // publish share memory id
+    smemPublish(ctx->sctx, mem_id);   // publish the memory
+
     // free share memory id
-    smemFreeShareMemory(ctx->sctx, mem_id); // free the share memory
+    //smemFreeShareMemory(ctx->sctx, mem_id); // free the share memory
 
     return 0;
 }
@@ -330,8 +337,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     av_log(avctx, AV_LOG_VERBOSE,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
         ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
 
-    // publish share memory id
-    smemPublish(ctx->sctx, mem_id);   // publish the memory
+
 
     // release share memory
     if(mem_ptr){
@@ -342,9 +348,11 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
         }
     }
 
-    
+    // publish share memory id
+    smemPublish(ctx->sctx, mem_id);   // publish the memory
+
     // free share memory id
-    smemFreeShareMemory(ctx->sctx, mem_id); // free the memory
+    //smemFreeShareMemory(ctx->sctx, mem_id); // free the memory
 
     return 0;
 }
@@ -387,8 +395,14 @@ av_cold static int ff_smem_write_close(AVFormatContext *avctx)
 }
 
 
+#define OFFSET(x) offsetof(smem_enc_ctx, x)
+#define DEC AV_OPT_FLAG_DECODING_PARAM
+#define ENC AV_OPT_FLAG_ENCODING_PARAM
+
 static const AVOption options[] = {
-{ NULL },
+    { "path", "the unix domain socket path", OFFSET(path), AV_OPT_TYPE_STRING, {0}, 0, 0, ENC },
+    { "port", "the redis server port", OFFSET(port), AV_OPT_TYPE_INT, {.i64 = 6379}, INT_MIN, INT_MAX, ENC },
+    { NULL },
 };
 
 static const AVClass smem_muxer_class = {

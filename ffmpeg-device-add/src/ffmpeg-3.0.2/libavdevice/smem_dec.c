@@ -27,7 +27,7 @@ typedef struct smem_dec_ctx {
 
     /* Params */
     char ip[64];    /* the share memory server ip address */
-    int  port;      /* the share memory server port */
+    
     char channel[128];  /* the channel in share memory server */
 
     int width;
@@ -44,6 +44,9 @@ typedef struct smem_dec_ctx {
 
     /* Options */
     int timeout;
+    char *path; // the unix domain socket path
+    int  port;      /* the share memory server port */
+
 
 }smem_dec_ctx;
 
@@ -137,7 +140,15 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
     }
 
     /* connect to the server */
-    ctx->sctx = smemCreateConsumer("127.0.0.1", 6379, avctx->filename);
+    if(ctx->path == NULL){
+        av_log(avctx, AV_LOG_INFO, "use ip socket, ip is '127.0.0.1', port=%d.\n", ctx->port);
+        ctx->sctx = smemCreateConsumer("127.0.0.1", ctx->port, avctx->filename);
+    }else{
+        av_log(avctx, AV_LOG_INFO, "use unix domain socket, path is'%s'.\n", ctx->path);
+        ctx->sctx = smemCreateConsumerUnix(ctx->path, avctx->filename);
+    }
+
+
     if(!ctx->sctx || ctx->sctx->err < 0){
         if (ctx->sctx) {
             av_log(avctx, AV_LOG_ERROR,"Connection error: %s\n", ctx->sctx->errstr);
@@ -564,6 +575,8 @@ av_cold static int ff_smem_read_close(AVFormatContext *avctx)
 
 static const AVOption options[] = {
     { "timeout", "set maximum timeout (in seconds)", OFFSET(timeout), AV_OPT_TYPE_INT, {.i64 = 10}, INT_MIN, INT_MAX, DEC },
+    { "path", "the unix domain socket path", OFFSET(path), AV_OPT_TYPE_STRING, {0}, 0, 0, DEC },
+    { "port", "the redis server port", OFFSET(port), AV_OPT_TYPE_INT, {.i64 = 6379}, INT_MIN, INT_MAX, DEC },
     { NULL },
 };
 
