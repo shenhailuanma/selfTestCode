@@ -190,10 +190,25 @@ static redisContext * smemCreateConnect(const char *ip, int port)
     redisContext * rctx = NULL;
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    //rctx = redisConnectWithTimeout(ip, port, timeout);
-    rctx = redisConnectUnixWithTimeout("/tmp/redis.sock", timeout);
+    rctx = redisConnectWithTimeout(ip, port, timeout);
     if (rctx == NULL || rctx->err) {
+        if (rctx) {
+            redisFree(rctx);        
+        }
+        rctx = NULL;
+    }
 
+    return rctx;
+}
+
+static redisContext * smemCreateConnectUnix(const char *path)
+{
+
+    redisContext * rctx = NULL;
+
+    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+    rctx = redisConnectUnixWithTimeout(path, timeout);
+    if (rctx == NULL || rctx->err) {
         if (rctx) {
             redisFree(rctx);        
         }
@@ -203,6 +218,7 @@ static redisContext * smemCreateConnect(const char *ip, int port)
 
     return rctx;
 }
+
 
 struct smemContext * smemCreateProducer(const char *ip, int port, const char *name)
 {
@@ -218,20 +234,33 @@ struct smemContext * smemCreateProducer(const char *ip, int port, const char *na
     strcpy(c->channel, name);
     c->port = port;
 
-    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    //c->rctx = redisConnectWithTimeout(ip, port, timeout);
-    c->rctx = redisConnectUnixWithTimeout("/tmp/redis.sock", timeout);
-    if (c->rctx == NULL || c->rctx->err) {
-
+    // create connect 
+    c->rctx = smemCreateConnect(ip, port);
+    if (c->rctx == NULL) {
         c->err = SMEM_ERROR_REDIS_CONNECT;
+        return c;
+    }
 
-        if (c->rctx) {
-            strcpy(c->errstr, c->rctx->errstr);
-            redisFree(c->rctx);
-            c->rctx = NULL;
-        } else {
-            strcpy(c->errstr, "can't allocate redis context");
-        }
+    return c;
+}
+
+struct smemContext * smemCreateProducerUnix(const char *path, const char *name)
+{
+    struct smemContext *c;
+
+    c = calloc(1,sizeof(struct smemContext));
+    if (c == NULL)
+        return NULL;
+
+    c->type = SMEM_CLIENT_TYPE_PRODUCER;
+    c->connect_type = SMEM_CONNECT_TYPE_UNIX;
+    strcpy(c->url, path);
+    strcpy(c->channel, name);
+
+    // create connect 
+    c->rctx = smemCreateConnectUnix(path);
+    if (c->rctx == NULL) {
+        c->err = SMEM_ERROR_REDIS_CONNECT;
         return c;
     }
 
@@ -314,11 +343,19 @@ static void * smemAsyncThread(void * h)
 {
     struct smemContext *c = h;
 
-    //c->rasync = redisAsyncConnect(c->url, c->port);
-    c->rasync = redisAsyncConnectUnix("/tmp/redis.sock");
+
+    if(c->connect_type == SMEM_CONNECT_TYPE_UNIX){
+        c->rasync = redisAsyncConnectUnix(c->url);
+    }else{
+        c->rasync = redisAsyncConnect(c->url, c->port);
+    }
+
     if (!c->rasync || c->rasync->err) {
         /* Let *c leak for now... */
-        printf("Error: %s\n", c->rasync->errstr);
+        if(c->rasync){
+            printf("redisAsyncConnect Error: %s\n", c->rasync->errstr);
+        }
+
         return NULL;
     }
 
@@ -340,18 +377,30 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char *na
 {
     struct smemContext *c;
 
-    c = smemCreateProducer(ip, port, name);
-    if(c == NULL || c->err){
+
+    c = calloc(1,sizeof(struct smemContext));
+    if (c == NULL)
         return NULL;
+
+    c->type = SMEM_CLIENT_TYPE_CONSUMER;
+    c->connect_type = SMEM_CONNECT_TYPE_IP;
+    strcpy(c->url, ip);
+    strcpy(c->channel, name);
+    c->port = port;
+
+
+    // create connect 
+    c->rctx = smemCreateConnect(ip, port);
+    if (c->rctx == NULL) {
+        c->err = SMEM_ERROR_REDIS_CONNECT;
+        return c;
     }
 
     c->rctx2 = smemCreateConnect(ip, port);
     if(c->rctx2 == NULL){
+        c->err = SMEM_ERROR_REDIS_CONNECT;
         return NULL;
     }
-
-
-    c->type = SMEM_CLIENT_TYPE_CONSUMER;
 
     c->queue_head = 0;
     c->queue_end  = 0;
@@ -370,6 +419,52 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char *na
 
     return c;
 }
+
+struct smemContext * smemCreateConsumerUnix(const char *path, const char *name)
+{
+    struct smemContext *c;
+
+
+    c = calloc(1,sizeof(struct smemContext));
+    if (c == NULL)
+        return NULL;
+
+    c->type = SMEM_CLIENT_TYPE_CONSUMER;
+    c->connect_type = SMEM_CONNECT_TYPE_UNIX;
+    strcpy(c->url, path);
+    strcpy(c->channel, name);
+
+    // create connect 
+    c->rctx = smemCreateConnectUnix(path); 
+    if (c->rctx == NULL) {
+        c->err = SMEM_ERROR_REDIS_CONNECT;
+        return c;
+    }
+
+    c->rctx2 = smemCreateConnectUnix(path);
+    if(c->rctx2 == NULL){
+        c->err = SMEM_ERROR_REDIS_CONNECT;
+        return NULL;
+    }
+
+    c->queue_head = 0;
+    c->queue_end  = 0;
+
+    // create thread
+    pthread_attr_t attr;
+    struct sched_param param;
+
+    pthread_attr_init(&attr);
+    pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+    //pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+    pthread_attr_getschedparam(&attr, &param);
+     
+    pthread_create(&c->async_tid, &attr, (void *)smemAsyncThread, c);
+
+    return c;
+}
+
 
 void smemPublish(struct smemContext * c, int id)
 {

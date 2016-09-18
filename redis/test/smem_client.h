@@ -36,7 +36,7 @@ extern "C" {
 #define SMEM_CONNECT_TYPE_UNIX      1
 
 
-#define SMEM_MAX_QUEUE_LENGTH       32
+#define SMEM_MAX_QUEUE_LENGTH       64
 
 struct smemContext{
     int type;   /* define in SMEM_CLIENT_TYPE_XXX */
@@ -62,6 +62,8 @@ struct smemContext{
 
 struct smemContext * smemCreateProducer(const char *ip, int port, const char * name);
 struct smemContext * smemCreateConsumer(const char *ip, int port, const char * name);
+struct smemContext * smemCreateProducerUnix(const char *path, const char *name);
+struct smemContext * smemCreateConsumerUnix(const char *path, const char *name);
 
 // free
 void smemFree(struct smemContext * c);
