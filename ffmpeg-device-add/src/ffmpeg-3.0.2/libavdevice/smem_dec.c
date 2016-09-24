@@ -591,7 +591,7 @@ static const AVClass smem_demuxer_class = {
 
 AVInputFormat ff_smem_demuxer = {
     .name           = "smem",
-    .long_name      = NULL_IF_CONFIG_SMALL("Test smem input"),
+    .long_name      = NULL_IF_CONFIG_SMALL("Test smem demuxer"),
     .flags          = AVFMT_NOFILE ,
     .priv_class     = &smem_demuxer_class,
     .priv_data_size = sizeof(struct smem_dec_ctx),

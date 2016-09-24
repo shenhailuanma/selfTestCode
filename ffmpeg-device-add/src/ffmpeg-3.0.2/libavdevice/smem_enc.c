@@ -416,11 +416,11 @@ static const AVClass smem_muxer_class = {
 
 AVOutputFormat ff_smem_muxer = {
     .name           = "smem",
-    .long_name      = NULL_IF_CONFIG_SMALL("Test smem output"),
+    .long_name      = NULL_IF_CONFIG_SMALL("Test smem muxer"),
     .audio_codec    = AV_CODEC_ID_PCM_S16LE,
     .video_codec    = AV_CODEC_ID_RAWVIDEO,
     .subtitle_codec = AV_CODEC_ID_NONE,
-    .flags          = AVFMT_NOFILE ,
+    .flags          = AVFMT_NOFILE | AVFMT_ALLOW_FLUSH | AVFMT_VARIABLE_FPS,
     .priv_class     = &smem_muxer_class,
     .priv_data_size = sizeof(struct smem_enc_ctx),
     .write_header   = ff_smem_write_header,
