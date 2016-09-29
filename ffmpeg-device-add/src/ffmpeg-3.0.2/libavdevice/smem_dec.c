@@ -42,6 +42,10 @@ typedef struct smem_dec_ctx {
     int should_duration[SMEM_MAX_STREAM];
     AVRational in_timebase[SMEM_MAX_STREAM];
 
+    int has_encoded_video_stream; 
+    int found_video_key_frame;
+
+
     /* Options */
     int timeout;
     char *path; // the unix domain socket path
@@ -179,6 +183,11 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
                 goto ff_smem_read_header_error;
             }
 
+            if(stream_info->codec_id != SMEM_CODEC_ID_RAWVIDEO){
+                ctx->has_encoded_video_stream = 1;
+            }
+
+
             stream->codec->codec_type  = AVMEDIA_TYPE_VIDEO;
             stream->codec->codec_id    = smem2av_codec_id(stream_info->codec_id); 
             //stream->codec->time_base.den      = stream_info->time_base.den;
@@ -202,9 +211,9 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             ctx->last_out_ts[i] = 0;
             ctx->first_in_ts[i] = 0;
 
-            av_log(avctx, AV_LOG_INFO, "stream:%d, video, codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d, should_duration=%d \n", i,
-                stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height,
-                ctx->should_duration[i]);
+            av_log(avctx, AV_LOG_INFO, "stream:%d, video, codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d, extradata_size:%d, should_duration=%d\n", 
+                i, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height,
+                stream_info->video_extradata_size, ctx->should_duration[i]);
 
             //stream->codec->bit_rate    = av_image_get_buffer_size(stream->codec->pix_fmt, ctx->width, ctx->height, 1) * 1/av_q2d(stream->codec->time_base) * 8;
         }
@@ -242,9 +251,14 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
                 memcpy(stream->codec->extradata, stream_info->audio_extradata, stream->codec->extradata_size);
             }
 
-            av_log(avctx, AV_LOG_INFO, "stream:%d, audio, codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d, should_duration:%d \n", i,
-                stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, 
-                stream_info->channels, stream_info->sample_fmt, ctx->should_duration[i]);
+            av_log(avctx, AV_LOG_INFO, "stream:%d, audio, codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d, extradata_size:%d, should_duration:%d\n", 
+                i, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, 
+                stream_info->channels, stream_info->sample_fmt, stream_info->audio_extradata_size, ctx->should_duration[i]);
+
+            // for test
+            //if(stream->codec->extradata_size > 0){
+            //    print_hex(stream->codec->extradata, stream->codec->extradata_size);
+            //}
 
         }else{
             av_log(avctx, AV_LOG_ERROR,"not support the type:%d\n", stream_info->codec_type);
@@ -345,18 +359,43 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info * m_info
     return 0;
 }
 
-static int if_free_frame(AVFormatContext *avctx, int stream_index)
+static int if_free_frame(AVFormatContext *avctx, struct memory_info * m_info)
 {
     struct smem_dec_ctx * ctx = avctx->priv_data;
     struct stream_info * stream_info = NULL;
+    int stream_index = m_info->index;
+
 
     int buffer_size;
-    
+
+
+    /*
+    // if streams has encoded video stream, should start at first video key frame
+    if(ctx->has_encoded_video_stream && ctx->found_video_key_frame == 0){
+        if(stream_index < ctx->stream_number){
+            stream_info = &ctx->stream_infos[stream_index];
+
+            // not found video key, other frames should be free
+            if(stream_info->codec_type != SMEM_MEDIA_TYPE_VIDEO){
+                return 1;
+            }
+
+            if(stream_info->codec_type == SMEM_MEDIA_TYPE_VIDEO && m_info->is_key){
+                ctx->found_video_key_frame = 1;
+                return 0;
+            }else{
+                return 1;
+            }
+        }
+    }
+    */
+
+    // if buffer will full, free the raw video packet
     if(stream_index < ctx->stream_number){
         stream_info = &ctx->stream_infos[stream_index];
 
         // if the video frame
-        if(stream_info->codec_type == SMEM_MEDIA_TYPE_VIDEO){
+        if(stream_info->codec_type == SMEM_MEDIA_TYPE_VIDEO && stream_info->codec_id == SMEM_CODEC_ID_RAWVIDEO){
             // get the buffer size
             buffer_size = smem_queue_size(ctx->sctx);
 
@@ -443,8 +482,8 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
             }
 
             // if the share memory buffer will full, skip the video frame
-            if(if_free_frame(avctx, m_info->index)){
-                av_log(avctx, AV_LOG_WARNING, "The share memory will full, free the frame, index=%d\n", m_info->index);
+            if(if_free_frame(avctx, m_info)){
+                av_log(avctx, AV_LOG_WARNING, "The share memory should free, index=%d\n", m_info->index);
 
                 ret = shmdt(mem_ptr); // free the share memory local ptr
                 smemFreeShareMemory(ctx->sctx, mem_id);
@@ -456,7 +495,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
             //av_log(avctx, AV_LOG_VERBOSE, "data_size: %d\n", m_info->data_size);
 
-            #if 1
+            #if 0
             // copy data
             av_new_packet(pkt, m_info->data_size); // alloc memory to carrying the data 
 
@@ -591,7 +630,7 @@ static const AVClass smem_demuxer_class = {
 
 AVInputFormat ff_smem_demuxer = {
     .name           = "smem",
-    .long_name      = NULL_IF_CONFIG_SMALL("Test smem demuxer"),
+    .long_name      = NULL_IF_CONFIG_SMALL("smem demuxer"),
     .flags          = AVFMT_NOFILE ,
     .priv_class     = &smem_demuxer_class,
     .priv_data_size = sizeof(struct smem_dec_ctx),

@@ -1231,7 +1231,6 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     NvencDecContext *ctx = avctx->priv_data;
 
     av_log(avctx, AV_LOG_VERBOSE, "nvenc_decode_init begin\n");
-    av_log(NULL, AV_LOG_VERBOSE, "nvenc_decode_init test null\n");
 
     int ret = -1;
     CUresult cu_res;
@@ -1342,8 +1341,10 @@ static av_cold int nvenc_decode_init(AVCodecContext *avctx)
     memset(&ctx->video_parser_params, 0, sizeof(ctx->video_parser_params));
     if(avctx->codec_id == AV_CODEC_ID_H264){
         ctx->video_parser_params.CodecType              = cudaVideoCodec_H264; // fixme: should support other codec in feature
+        av_log(avctx, AV_LOG_INFO, "nvenc_decode_init, codec_id==AV_CODEC_ID_H264, use cudaVideoCodec_H264.\n");
     }else if(avctx->codec_id == AV_CODEC_ID_MPEG2VIDEO){
         ctx->video_parser_params.CodecType              = cudaVideoCodec_MPEG2;
+        av_log(avctx, AV_LOG_INFO, "nvenc_decode_init, codec_id==AV_CODEC_ID_MPEG2VIDEO, use cudaVideoCodec_MPEG2.\n");
     }else{
         av_log(avctx, AV_LOG_FATAL, "Failed fot the codec:%d not support.\n", avctx->codec_id);
         goto nvenc_decode_init_fail;
@@ -1521,8 +1522,8 @@ static int nvenc_decode_frame(AVCodecContext *avctx, void *data,
 
         if (p_filtered != avpkt->data)
             av_free(p_filtered);
-        return ret > 0 ? avpkt->size : ret;
-
+        //return cu_ret == 0 ? avpkt->size : cu_ret;
+        return avpkt->size;
     }
 
 

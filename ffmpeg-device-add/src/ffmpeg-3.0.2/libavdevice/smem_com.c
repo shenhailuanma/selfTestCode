@@ -322,3 +322,17 @@ int av2smem_sample_fmt(int sample_fmt)
 
     return SMEM_SAMPLE_FMT_NONE;
 }
+
+void print_hex(char * phex, int size)
+{
+    if(phex == NULL)
+        return;
+
+    int i = 0;
+    while(i < size){
+        printf("%02x ", (unsigned char)phex[i]);
+        i++;
+    }
+
+    printf("\n");
+}

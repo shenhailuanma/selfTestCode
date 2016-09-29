@@ -32,6 +32,7 @@ int smem2av_sample_fmt(int sample_fmt);
 
 int av2smem_sample_fmt(int sample_fmt);
 
+void print_hex(char * phex, int size);
 
 #ifdef __cplusplus
 } /* extern "C" */
