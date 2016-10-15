@@ -187,7 +187,7 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
                 ctx->has_encoded_video_stream = 1;
             }
 
-
+            stream->id = stream_info->stream_id;
             stream->codec->codec_type  = AVMEDIA_TYPE_VIDEO;
             stream->codec->codec_id    = smem2av_codec_id(stream_info->codec_id); 
             //stream->codec->time_base.den      = stream_info->time_base.den;
@@ -211,8 +211,8 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             ctx->last_out_ts[i] = 0;
             ctx->first_in_ts[i] = 0;
 
-            av_log(avctx, AV_LOG_INFO, "stream:%d, video, codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d, extradata_size:%d, should_duration=%d\n", 
-                i, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height,
+            av_log(avctx, AV_LOG_INFO, "stream:%d, video, stream_id=%d, codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d, extradata_size:%d, should_duration=%d\n", 
+                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height,
                 stream_info->video_extradata_size, ctx->should_duration[i]);
 
             //stream->codec->bit_rate    = av_image_get_buffer_size(stream->codec->pix_fmt, ctx->width, ctx->height, 1) * 1/av_q2d(stream->codec->time_base) * 8;
@@ -227,6 +227,7 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
                 goto ff_smem_read_header_error;
             }
 
+            stream->id = stream_info->stream_id;
             stream->codec->codec_type  = AVMEDIA_TYPE_AUDIO;
             stream->codec->codec_id    = smem2av_codec_id(stream_info->codec_id); 
             //stream->codec->time_base.den      = stream_info->time_base.den;
@@ -251,8 +252,8 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
                 memcpy(stream->codec->extradata, stream_info->audio_extradata, stream->codec->extradata_size);
             }
 
-            av_log(avctx, AV_LOG_INFO, "stream:%d, audio, codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d, extradata_size:%d, should_duration:%d\n", 
-                i, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, 
+            av_log(avctx, AV_LOG_INFO, "stream:%d, audio, stream_id=%d, codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d, extradata_size:%d, should_duration:%d\n", 
+                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, 
                 stream_info->channels, stream_info->sample_fmt, stream_info->audio_extradata_size, ctx->should_duration[i]);
 
             // for test
@@ -631,7 +632,7 @@ static const AVClass smem_demuxer_class = {
 AVInputFormat ff_smem_demuxer = {
     .name           = "smem",
     .long_name      = NULL_IF_CONFIG_SMALL("smem demuxer"),
-    .flags          = AVFMT_NOFILE ,
+    .flags          = AVFMT_NOFILE | AVFMT_SHOW_IDS,
     .priv_class     = &smem_demuxer_class,
     .priv_data_size = sizeof(struct smem_dec_ctx),
     .read_header   = ff_smem_read_header,

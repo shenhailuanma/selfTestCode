@@ -176,6 +176,7 @@ struct memory_info {
     int data_size;
     int is_key;
     int id; // share memory id 
+
 };
 
 struct stream_info {
@@ -198,7 +199,12 @@ struct stream_info {
     enum SMemSampleFormat sample_fmt;  ///< sample format
     int audio_extradata_size;
     uint8_t audio_extradata[128];
-    /* other stream not support yet */
+
+    /* subtitle */
+
+
+    /* others */
+    int stream_id; // stream id, add 2016.10.14
 };
 
 

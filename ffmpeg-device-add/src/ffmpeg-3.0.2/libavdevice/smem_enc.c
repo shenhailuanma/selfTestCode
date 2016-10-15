@@ -100,10 +100,13 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
     for (n = 0; n < avctx->nb_streams; n++) {
         stream = avctx->streams[n];
         c = stream->codec;
+
+        ctx->stream_infos[n].index = n;
+        ctx->stream_infos[n].stream_id = stream->id;
+
         if(c->codec_type == AVMEDIA_TYPE_AUDIO) {
             //av_log(avctx, AV_LOG_VERBOSE, "ff_smem_write_header stream[%d] is audio stream.\n", n);
 
-            ctx->stream_infos[n].index = n;
             ctx->stream_infos[n].codec_type = SMEM_MEDIA_TYPE_AUDIO;
             ctx->stream_infos[n].codec_id = av2smem_codec_id(c->codec_id);
             ctx->stream_infos[n].time_base.den = c->time_base.den;
@@ -118,8 +121,8 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
                 memcpy(ctx->stream_infos[n].audio_extradata, c->extradata, c->extradata_size);
             }
 
-            av_log(avctx, AV_LOG_INFO, "ff_smem_write_header, stream[%d] is audio stream, codec_id=%d, sample_rate=%d, channels=%d, sample_fmt=%d,extradata_size=%d.\n", 
-                n, c->codec_id, c->sample_rate, c->channels, c->sample_fmt, c->extradata_size);
+            av_log(avctx, AV_LOG_INFO, "ff_smem_write_header, stream[%d] is audio stream, stream_id=%d, codec_id=%d, sample_rate=%d, channels=%d, sample_fmt=%d,extradata_size=%d.\n", 
+                n, stream->id, c->codec_id, c->sample_rate, c->channels, c->sample_fmt, c->extradata_size);
 
             // for test
             //if(c->extradata_size > 0){
@@ -132,8 +135,6 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->width = c->width;
             ctx->height = c->height;
 
-
-            ctx->stream_infos[n].index = n;
             ctx->stream_infos[n].codec_type = SMEM_MEDIA_TYPE_VIDEO;
             ctx->stream_infos[n].codec_id = av2smem_codec_id(c->codec_id);
             ctx->stream_infos[n].time_base.den = c->time_base.den;
@@ -150,8 +151,8 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
 
             ctx->pic_size = av_image_get_buffer_size(c->pix_fmt, c->width, c->height, 1);
 
-            av_log(avctx, AV_LOG_INFO, "ff_smem_write_header, stream[%d] is video stream, codec_id=%d, pix_fmt=%d, width=%d, height=%d, extradata_size=%d.\n", 
-                n, c->codec_id, c->pix_fmt, c->width, c->height, c->extradata_size);
+            av_log(avctx, AV_LOG_INFO, "ff_smem_write_header, stream[%d] is video stream, stream_id=%d, codec_id=%d, pix_fmt=%d, width=%d, height=%d, extradata_size=%d.\n", 
+                n, stream->id, c->codec_id, c->pix_fmt, c->width, c->height, c->extradata_size);
 
         } else {
             av_log(avctx, AV_LOG_ERROR, "Unsupported stream type.\n");
@@ -425,7 +426,7 @@ AVOutputFormat ff_smem_muxer = {
     .audio_codec    = AV_CODEC_ID_PCM_S16LE,
     .video_codec    = AV_CODEC_ID_RAWVIDEO,
     .subtitle_codec = AV_CODEC_ID_NONE,
-    .flags          = AVFMT_NOFILE | AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_VARIABLE_FPS,
+    .flags          = AVFMT_NOFILE | AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_VARIABLE_FPS | AVFMT_SHOW_IDS,
     .priv_class     = &smem_muxer_class,
     .priv_data_size = sizeof(struct smem_enc_ctx),
     .write_header   = ff_smem_write_header,
