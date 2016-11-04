@@ -176,6 +176,16 @@ void smemgetCommand(client *c)
                 // get buffer by use smem
                 mem_id = smem_get_buffer(size);
 
+                
+                // mem_id maybe is 0, but we want to it is biger than 0
+                if(mem_id == 0){
+                    // free
+                    smem_free_buffer(mem_id);
+
+                    // reget
+                    mem_id = smem_get_buffer(size);
+                }
+                
 
                 if(mem_id != -1){
                     
@@ -207,7 +217,7 @@ void smemgetCommand(client *c)
                     
                 }
             }else{
-                serverLog(LL_WARNING,"[smemgetCommand] server.share_memory_size:%d + %d > server.share_memory_limit:%d", server.share_memory_size, size, server.share_memory_limit);
+                serverLog(LL_WARNING,"[smemgetCommand] server.share_memory_size:%lu + %d > server.share_memory_limit:%lu", server.share_memory_size, size, server.share_memory_limit);
             }
 
 
@@ -293,12 +303,15 @@ void smemfreeCommand(client *c)
                 free_cnt ++;
             }
             
-        }else{
+        }
+        /*else{
+            // not free memory that not in list. When user use publish and then use free, will some ploblem. (zhangxu 2016.11.4)
             if(getLongLongFromObject(smem_obj,&ll_var) == C_OK){
                 mem_id = ll_var;
                 smem_free_buffer(mem_id);
             }
         }
+        */
 
         
     }
@@ -666,6 +679,7 @@ void smemFreeShareMemory(int timeout)
     dictReleaseIterator(di);
     
 
-    serverLog(LL_NOTICE,"[smemFreeShareMemory] available_dict_size:%d, available_cnt:%d, available_free_cnt=%d, used_cnt:%d, used_free_cnt=%d.", 
+    serverLog(LL_NOTICE,"[smemFreeShareMemory] total_system_mem=%lu, share_memory_size=%lu, share_memory_limit=%lu, available_dict_size:%d, available_cnt:%d, available_free_cnt=%d, used_cnt:%d, used_free_cnt=%d.", 
+        server.system_memory_size, server.share_memory_size, server.share_memory_limit,
         dictSize(server.smempubsub_memorys_available), available_cnt, available_free_cnt, dictSize(server.smempubsub_memorys), used_free_cnt);
 }
