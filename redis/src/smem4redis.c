@@ -69,9 +69,12 @@ void smemlistMoveNodeToDict(list *list_src, dict *dict_dst, listNode *node)
 
     // add to dst list
     dictEntry *de;
-    de = dictFind(dict_dst,createObject(OBJ_STRING,sdsfromlonglong(smem_p->id)));
+    robj * key_obj = createObject(OBJ_STRING,sdsfromlonglong(smem_p->id));
+    de = dictFind(dict_dst, key_obj);
     if(de == NULL){
-        dictAdd(dict_dst, createObject(OBJ_STRING,sdsfromlonglong(smem_p->id)), smem_p);
+        dictAdd(dict_dst, key_obj, smem_p);
+    }else{
+        decrRefCount(key_obj);
     }
 
     zfree(node);
@@ -140,7 +143,8 @@ void smemgetCommand(client *c)
         dictEntry *de;
         list * available_list;
 
-        de = dictFind(server.smempubsub_memorys_available, createObject(OBJ_STRING,sdsfromlonglong(size)));
+        robj * key_obj = createObject(OBJ_STRING,sdsfromlonglong(size));
+        de = dictFind(server.smempubsub_memorys_available, key_obj);
         if(de){
             available_list = dictGetVal(de);
 
@@ -169,6 +173,7 @@ void smemgetCommand(client *c)
             }
 
         }
+        decrRefCount(key_obj);
 
         if(mem_id == -1){
             // check the share memory max limit
@@ -205,7 +210,7 @@ void smemgetCommand(client *c)
                         // add to dict
 
                         robj * smem_obj = createObject(OBJ_STRING,sdsfromlonglong(smem_p->id));
-                        incrRefCount(smem_obj);
+                        //incrRefCount(smem_obj);
 
 
                         dictAdd(server.smempubsub_memorys, smem_obj, smem_p);
@@ -248,6 +253,8 @@ void smemfreeCommand(client *c)
     dictEntry *de;
     dictEntry *de2;
 
+    robj * key_obj;
+
     for (j = 1; j < c->argc; j++){
         smem_obj = c->argv[j];
 
@@ -268,16 +275,19 @@ void smemfreeCommand(client *c)
                     smem_p->last_time = server.unixtime;
 
                     // add the item to available dict
-                    de2 = dictFind(server.smempubsub_memorys_available, createObject(OBJ_STRING,sdsfromlonglong(smem_p->size)));
+                    key_obj = createObject(OBJ_STRING,sdsfromlonglong(smem_p->size));
+                    de2 = dictFind(server.smempubsub_memorys_available, key_obj);
                     if(de2){
                         available_list = dictGetVal(de2);
+                        decrRefCount(key_obj);
 
                     }else{
                         // create new item to available dict
                         available_list = listCreate();
-                        dictAdd(server.smempubsub_memorys_available, createObject(OBJ_STRING,sdsfromlonglong(smem_p->size)), available_list);
+                        dictAdd(server.smempubsub_memorys_available, key_obj, available_list);
 
                     }
+                    
 
                     //serverLog(LL_WARNING,"[smemfreeCommand] get one smem need to free, size=%d, listLength=%d", smem_p->size, listLength(available_list));
 
@@ -527,6 +537,8 @@ int smempubsubPublishMessage(robj *channel, robj *message)
     dictEntry *de2;
     list * available_list;
 
+    robj * key_obj;
+
     if(smem_p){
         smem_p->cnt--;
 
@@ -537,16 +549,21 @@ int smempubsubPublishMessage(robj *channel, robj *message)
             smem_p->last_time = server.unixtime;
 
                     // add the item to available dict
-                    de2 = dictFind(server.smempubsub_memorys_available, createObject(OBJ_STRING,sdsfromlonglong(smem_p->size)));
+                    key_obj = createObject(OBJ_STRING,sdsfromlonglong(smem_p->size));
+                    de2 = dictFind(server.smempubsub_memorys_available, key_obj);
+                    
+
                     if(de2){
                         available_list = dictGetVal(de2);
+                        decrRefCount(key_obj);
 
                     }else{
                         // create new item to available dict
                         available_list = listCreate();
-                        dictAdd(server.smempubsub_memorys_available, createObject(OBJ_STRING,sdsfromlonglong(smem_p->size)), available_list);
+                        dictAdd(server.smempubsub_memorys_available, key_obj, available_list);
 
                     }
+                    
 
                     //serverLog(LL_WARNING,"[smemfreeCommand] get one smem need to free, size=%d, listLength=%d", smem_p->size, listLength(available_list));
 
