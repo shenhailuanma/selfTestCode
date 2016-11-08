@@ -33,7 +33,7 @@ int main(int argc, char **argv)
 
         // get share memory id
         mem_id = smemGetShareMemory(ctx, yuv_size);  // step2: get share memory
-        if(mem_id > 0){
+        if(mem_id != -1){
             //printf("get memory id: %d\n", mem_id);
 
             // get the memory ptr

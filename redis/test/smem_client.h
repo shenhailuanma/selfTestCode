@@ -36,7 +36,7 @@ extern "C" {
 #define SMEM_CONNECT_TYPE_UNIX      1
 
 
-#define SMEM_MAX_QUEUE_LENGTH       64
+#define SMEM_MAX_QUEUE_LENGTH       256
 
 struct smemContext{
     int type;   /* define in SMEM_CLIENT_TYPE_XXX */

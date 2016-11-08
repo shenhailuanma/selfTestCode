@@ -179,7 +179,52 @@ struct memory_info {
 
 };
 
+
+/* size_stream_info define large enough size for feature new add */
+struct size_stream_info {
+    char buffer[256];
+};
+
+struct video_stream_info {
+    int width;
+    int height;
+    enum SMemPixelFormat pix_fmt; // enum AVPixelFormat
+    int extradata_size;
+    uint8_t extradata[128];
+};
+
+
+struct audio_stream_info {
+    int sample_rate; ///< samples per second
+    int channels;    ///< number of audio channels
+    enum SMemSampleFormat sample_fmt;  ///< sample format
+    int extradata_size;
+    uint8_t extradata[128];
+};
+
+struct subtitle_stream_info{
+    int test;
+};
+
+union stream_info_union {
+    struct size_stream_info     size;
+    struct video_stream_info    video;
+    struct audio_stream_info    audio;
+    struct subtitle_stream_info subtitle;
+};
+
 struct stream_info {
+    int index; 
+
+    enum SMemMediaType codec_type; 
+    enum SMemCodecID     codec_id; 
+    int stream_id; // stream id, most used in mpegts, add 2016.10.14
+    SMemRational time_base;
+
+    union stream_info_union info;
+};
+
+struct stream_info_old {
     int index; 
 
     enum SMemMediaType codec_type; 
@@ -200,11 +245,13 @@ struct stream_info {
     int audio_extradata_size;
     uint8_t audio_extradata[128];
 
+
     /* subtitle */
 
 
     /* others */
-    int stream_id; // stream id, add 2016.10.14
+    //int stream_id; // stream id, most used in mpegts, add 2016.10.14
+
 };
 
 

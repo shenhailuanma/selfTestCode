@@ -20,7 +20,7 @@ int main(void)
     while(1){
         // get memory 
         mem_id = smemGetShareMemory(ctx, 0);
-        if(mem_id > 0){
+        if(mem_id != -1){
             printf("get memory id: %d\n", mem_id);
 
             // free the memory id

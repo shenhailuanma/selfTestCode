@@ -113,13 +113,14 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].time_base.num = c->time_base.num;
             //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
-            ctx->stream_infos[n].sample_rate = c->sample_rate;
-            ctx->stream_infos[n].channels = c->channels;
-            ctx->stream_infos[n].sample_fmt = av2smem_sample_fmt(c->sample_fmt);
-            ctx->stream_infos[n].audio_extradata_size = c->extradata_size;
+            ctx->stream_infos[n].info.audio.sample_rate = c->sample_rate;
+            ctx->stream_infos[n].info.audio.channels = c->channels;
+            ctx->stream_infos[n].info.audio.sample_fmt = av2smem_sample_fmt(c->sample_fmt);
+            ctx->stream_infos[n].info.audio.extradata_size = c->extradata_size;
             if(c->extradata_size > 0){
-                memcpy(ctx->stream_infos[n].audio_extradata, c->extradata, c->extradata_size);
+                memcpy(ctx->stream_infos[n].info.audio.extradata, c->extradata, c->extradata_size);
             }
+
 
             av_log(avctx, AV_LOG_INFO, "ff_smem_write_header, stream[%d] is audio stream, stream_id=%d, codec_id=%d, sample_rate=%d, channels=%d, sample_fmt=%d,extradata_size=%d.\n", 
                 n, stream->id, c->codec_id, c->sample_rate, c->channels, c->sample_fmt, c->extradata_size);
@@ -141,12 +142,12 @@ av_cold static int ff_smem_write_header(AVFormatContext *avctx)
             ctx->stream_infos[n].time_base.num = c->time_base.num;
             //ctx->stream_infos[n].time_base = AV_TIME_BASE_Q;
 
-            ctx->stream_infos[n].width = c->width;
-            ctx->stream_infos[n].height = c->height;
-            ctx->stream_infos[n].pix_fmt = av2smem_pix_fmt(c->pix_fmt);
-            ctx->stream_infos[n].video_extradata_size = c->extradata_size;
+            ctx->stream_infos[n].info.video.width = c->width;
+            ctx->stream_infos[n].info.video.height = c->height;
+            ctx->stream_infos[n].info.video.pix_fmt = av2smem_pix_fmt(c->pix_fmt);
+            ctx->stream_infos[n].info.video.extradata_size = c->extradata_size;
             if(c->extradata_size > 0){
-                memcpy(ctx->stream_infos[n].video_extradata, c->extradata, c->extradata_size);
+                memcpy(ctx->stream_infos[n].info.video.extradata, c->extradata, c->extradata_size);
             }
 
             ctx->pic_size = av_image_get_buffer_size(c->pix_fmt, c->width, c->height, 1);
@@ -209,7 +210,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     // get share memory id
     mem_id = smemGetShareMemory(ctx->sctx, mem_size);  // get share memory
-    if(mem_id > 0){
+    if(mem_id != -1){
         //printf("get memory id: %d\n", mem_id);
 
         // get the memory ptr
@@ -221,7 +222,7 @@ static int ff_smem_write_video_packet(AVFormatContext *avctx, AVPacket *pkt)
         memset(mem_ptr, 0, mem_size);
 
     }else{
-        av_log(avctx, AV_LOG_ERROR,"get memory failed...\n");
+        av_log(avctx, AV_LOG_ERROR,"get memory failed, size=%d.\n", mem_size);
         return 0;  // fixme: should retry to get memory
     }
 
@@ -300,7 +301,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
 
     // get share memory id
     mem_id = smemGetShareMemory(ctx->sctx, mem_size);  // get share memory
-    if(mem_id > 0){
+    if(mem_id != -1){
         //printf("get memory id: %d\n", mem_id);
 
         // get the memory ptr
@@ -312,7 +313,7 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
         memset(mem_ptr, 0, mem_size);
 
     }else{
-        printf("get memory failed...\n");
+        printf("get memory failed, size=%d.\n", mem_size);
         return 0;  // fixme: should retry to get memory
     }
 
@@ -328,10 +329,11 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     m_info->data_offset = sizeof(struct memory_info) + ctx->stream_info_size;
     m_info->data_size = buf_size;
 
-    if(pkt->flags & AV_PKT_FLAG_KEY)
+    if(pkt->flags & AV_PKT_FLAG_KEY){
         m_info->is_key = 1;
-    else
+    }else{
         m_info->is_key = 0;
+    }
 
     // copy the streams info
     memcpy(mem_ptr+m_info->stream_info_offset, ctx->stream_infos, ctx->stream_info_size);
@@ -340,8 +342,8 @@ static int ff_smem_write_audio_packet(AVFormatContext *avctx, AVPacket *pkt)
     memcpy(mem_ptr+m_info->data_offset, pkt->data, m_info->data_size);
 
 
-    av_log(avctx, AV_LOG_VERBOSE,"stream_index=%d, pts=%lld, time_base=(%d, %d).\n", pkt->stream_index, m_info->pts, 
-        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den);
+    av_log(avctx, AV_LOG_VERBOSE,"stream_index=%d, pts=%lld, time_base=(%d, %d), is_key=%d.\n", pkt->stream_index, m_info->pts, 
+        ctx->stream_infos[pkt->stream_index].time_base.num, ctx->stream_infos[pkt->stream_index].time_base.den, m_info->is_key);
 
 
 

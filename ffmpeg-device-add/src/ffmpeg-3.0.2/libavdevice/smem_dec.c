@@ -52,6 +52,11 @@ typedef struct smem_dec_ctx {
     int  port;      /* the share memory server port */
 
 
+
+    /* others */
+    int free_cnt[SMEM_MAX_STREAM]; // the stream continuous free count
+
+
 }smem_dec_ctx;
 
 typedef struct smem_buffer_opaque {
@@ -73,7 +78,7 @@ static int get_stream_info(AVFormatContext *avctx)
     while(1){
         // to get one share memory
         mem_id = smemGetShareMemory(ctx->sctx, 0);
-        if(mem_id > 0){
+        if(mem_id != -1){
             //av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
 
             // get the memory ptr
@@ -195,13 +200,13 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             stream->codec->time_base = SMEM_TIME_BASE_Q;
             stream->time_base = stream->codec->time_base;
 
-            stream->codec->pix_fmt     = smem2av_pix_fmt(stream_info->pix_fmt);
-            stream->codec->width       = stream_info->width;
-            stream->codec->height      = stream_info->height;
-            stream->codec->extradata_size      = stream_info->video_extradata_size;
+            stream->codec->pix_fmt     = smem2av_pix_fmt(stream_info->info.video.pix_fmt);
+            stream->codec->width       = stream_info->info.video.width;
+            stream->codec->height      = stream_info->info.video.height;
+            stream->codec->extradata_size      = stream_info->info.video.extradata_size;
             if(stream->codec->extradata_size > 0){
                 stream->codec->extradata = av_malloc(stream->codec->extradata_size);
-                memcpy(stream->codec->extradata, stream_info->video_extradata, stream->codec->extradata_size);
+                memcpy(stream->codec->extradata, stream_info->info.video.extradata, stream->codec->extradata_size);
             }
 
             ctx->should_duration[i] = SMEM_TIME_BASE/SMEM_NUM_IN_RANGE(25, 1, 60);  // fixme: should know the framerate
@@ -212,10 +217,17 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             ctx->first_in_ts[i] = 0;
 
             av_log(avctx, AV_LOG_INFO, "stream:%d, video, stream_id=%d, codec_id:%d, time_base:(%d,%d), pix_fmt:%d, width:%d, height:%d, extradata_size:%d, should_duration=%d\n", 
-                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->pix_fmt, stream_info->width, stream_info->height,
-                stream_info->video_extradata_size, ctx->should_duration[i]);
+                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->info.video.pix_fmt, stream_info->info.video.width, 
+                stream_info->info.video.height,
+                stream_info->info.video.extradata_size, ctx->should_duration[i]);
 
             //stream->codec->bit_rate    = av_image_get_buffer_size(stream->codec->pix_fmt, ctx->width, ctx->height, 1) * 1/av_q2d(stream->codec->time_base) * 8;
+            
+            // for test
+            if(stream->codec->extradata_size > 0){
+                print_hex(stream->codec->extradata, stream->codec->extradata_size);
+            }
+
         }
         else if(stream_info->codec_type == SMEM_MEDIA_TYPE_AUDIO){
             av_log(avctx, AV_LOG_VERBOSE, "stream %d is audio stream\n", i);
@@ -235,9 +247,9 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             stream->codec->time_base = SMEM_TIME_BASE_Q;
             stream->time_base = stream->codec->time_base;
 
-            stream->codec->sample_rate   = stream_info->sample_rate;
-            stream->codec->channels      = stream_info->channels;
-            stream->codec->sample_fmt    = smem2av_sample_fmt(stream_info->sample_fmt);
+            stream->codec->sample_rate   = stream_info->info.audio.sample_rate;
+            stream->codec->channels      = stream_info->info.audio.channels;
+            stream->codec->sample_fmt    = smem2av_sample_fmt(stream_info->info.audio.sample_fmt);
 
             ctx->should_duration[i] = (SMEM_TIME_BASE*1024)/SMEM_NUM_IN_RANGE(stream->codec->sample_rate, 11025, 48000);
             ctx->in_timebase[i].den = stream_info->time_base.den;
@@ -246,20 +258,20 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             ctx->last_out_ts[i] = 0;
             ctx->first_in_ts[i] = 0;
 
-            stream->codec->extradata_size      = stream_info->audio_extradata_size;
+            stream->codec->extradata_size      = stream_info->info.audio.extradata_size;
             if(stream->codec->extradata_size > 0){
                 stream->codec->extradata = av_malloc(stream->codec->extradata_size);
-                memcpy(stream->codec->extradata, stream_info->audio_extradata, stream->codec->extradata_size);
+                memcpy(stream->codec->extradata, stream_info->info.audio.extradata, stream->codec->extradata_size);
             }
 
             av_log(avctx, AV_LOG_INFO, "stream:%d, audio, stream_id=%d, codec_id:%d, time_base:(%d,%d), sample_rate:%d, channels:%d, sample_fmt:%d, extradata_size:%d, should_duration:%d\n", 
-                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->sample_rate, 
-                stream_info->channels, stream_info->sample_fmt, stream_info->audio_extradata_size, ctx->should_duration[i]);
+                i, stream->id, stream_info->codec_id, stream_info->time_base.num, stream_info->time_base.den, stream_info->info.audio.sample_rate, 
+                stream_info->info.audio.channels, stream_info->info.audio.sample_fmt, stream_info->info.audio.extradata_size, ctx->should_duration[i]);
 
             // for test
-            //if(stream->codec->extradata_size > 0){
-            //    print_hex(stream->codec->extradata, stream->codec->extradata_size);
-            //}
+            if(stream->codec->extradata_size > 0){
+                print_hex(stream->codec->extradata, stream->codec->extradata_size);
+            }
 
         }else{
             av_log(avctx, AV_LOG_ERROR,"not support the type:%d\n", stream_info->codec_type);
@@ -402,7 +414,14 @@ static int if_free_frame(AVFormatContext *avctx, struct memory_info * m_info)
 
             // if buffer will full, should free the frame
             if(buffer_size >= (SMEM_MAX_QUEUE_LENGTH/2)){
-                return 1;
+
+                if(ctx->free_cnt[stream_index] >= 0 && ctx->free_cnt[stream_index] < 1){
+                    ctx->free_cnt[stream_index]++;
+                    return 1;
+                }else{
+                    ctx->free_cnt[stream_index] = 0;
+                    return 0;
+                }
             }
         }
 
@@ -460,7 +479,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
     while(1){
         // get memory 
         mem_id = smemGetShareMemory(ctx->sctx, 0);
-        if(mem_id > 0){
+        if(mem_id != -1){
             //av_log(avctx, AV_LOG_VERBOSE, "get memory id: %d\n", mem_id);
 
             // get the memory ptr
@@ -484,7 +503,7 @@ static int ff_smem_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
             // if the share memory buffer will full, skip the video frame
             if(if_free_frame(avctx, m_info)){
-                av_log(avctx, AV_LOG_WARNING, "The share memory should free, index=%d\n", m_info->index);
+                av_log(avctx, AV_LOG_WARNING, "The share memory should free, index=%d, dts=%lld\n", m_info->index, out_dts);
 
                 ret = shmdt(mem_ptr); // free the share memory local ptr
                 smemFreeShareMemory(ctx->sctx, mem_id);
