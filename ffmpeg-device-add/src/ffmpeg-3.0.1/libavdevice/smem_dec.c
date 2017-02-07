@@ -50,12 +50,7 @@ typedef struct smem_dec_ctx {
     int timeout;
     char *path;     // the unix domain socket path
     int  port;      // the share memory server port 
-    
-    /* 
-        the channel that module following, if it changed, the module will switch to new channel. 
-        
-    */
-    char *channel;  
+    char *name;     // the name of the smem client
 
 
 
@@ -172,6 +167,12 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
             av_log(avctx, AV_LOG_ERROR,"Connection error: can't allocate redis context\n");
         }
     }
+
+    if(strlen(avctx->name) > 0){
+        av_log(avctx, AV_LOG_INFO, "set name=%s.\n", avctx->name);
+        //smsmSetFollow(ctx->sctx, avctx->name);
+    }
+    
 
     /* get the stream info */
     get_stream_info(avctx);
@@ -642,7 +643,7 @@ static const AVOption options[] = {
     { "timeout", "set maximum timeout (in seconds)", OFFSET(timeout), AV_OPT_TYPE_INT, {.i64 = 10}, INT_MIN, INT_MAX, DEC },
     { "path", "the unix domain socket path", OFFSET(path), AV_OPT_TYPE_STRING, {0}, 0, 0, DEC },
     { "port", "the redis server port", OFFSET(port), AV_OPT_TYPE_INT, {.i64 = 6379}, INT_MIN, INT_MAX, DEC },
-    { "channel", "the channel that module following", OFFSET(channel), AV_OPT_TYPE_STRING, {0}, 0, 0, DEC },
+    { "name", "the name of the connection", OFFSET(name), AV_OPT_TYPE_STRING, {0}, 0, 0, DEC },
     { NULL },
 };
 

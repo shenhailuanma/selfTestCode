@@ -51,6 +51,10 @@ struct smemContext{
     char url[128];     /* the url of the redis */
     int port;          /* the port for redis ip connect */
     char channel[128]; /* the pub/sub channel name */
+    char follow[128];  /* is a key in redis that of the follow channel name */
+
+
+    char name[128]; /* the name of the smem context, used for identify clients */
 
     /* simple queue */
     int queue[SMEM_MAX_QUEUE_LENGTH];
@@ -65,19 +69,22 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char * n
 struct smemContext * smemCreateProducerUnix(const char *path, const char *name);
 struct smemContext * smemCreateConsumerUnix(const char *path, const char *name);
 
-// free
+// free the smem context
 void smemFree(struct smemContext * c);
 
 // get share memory
 int smemGetShareMemory(struct smemContext * c, int size);
 
-// free share memory
+// free share memory by id
 void smemFreeShareMemory(struct smemContext * c, int id);
 
 // publish the share memory
 void smemPublish(struct smemContext * c, int id);
 
+// get the queue size 
 int smem_queue_size(struct smemContext * c);
+
+
 
 #ifdef __cplusplus
 } /* extern "C" */
