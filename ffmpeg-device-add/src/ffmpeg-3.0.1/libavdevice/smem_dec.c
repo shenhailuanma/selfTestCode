@@ -149,13 +149,25 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
         return AVERROR(EIO);
     }
 
+    int len = 0;
+    if(ctx->name){
+        len = strlen(ctx->name);
+        if(len > 0 && len < sizeof(ctx->sctx->name)){
+
+            // the name should be common string
+            av_log(avctx, AV_LOG_INFO, "set name=%s.\n", ctx->name);
+
+        }   
+    }
+
+
     /* connect to the server */
     if(ctx->path == NULL){
         av_log(avctx, AV_LOG_INFO, "use ip socket, ip is '127.0.0.1', port=%d.\n", ctx->port);
-        ctx->sctx = smemCreateConsumer("127.0.0.1", ctx->port, avctx->filename);
+        ctx->sctx = smemCreateConsumerWithName("127.0.0.1", ctx->port, avctx->filename, ctx->name);
     }else{
         av_log(avctx, AV_LOG_INFO, "use unix domain socket, path is'%s'.\n", ctx->path);
-        ctx->sctx = smemCreateConsumerUnix(ctx->path, avctx->filename);
+        ctx->sctx = smemCreateConsumerUnixWithName(ctx->path, avctx->filename, ctx->name);
     }
 
 
@@ -168,11 +180,7 @@ av_cold static int ff_smem_read_header(AVFormatContext *avctx)
         }
     }
 
-    if(strlen(avctx->name) > 0){
-        av_log(avctx, AV_LOG_INFO, "set name=%s.\n", avctx->name);
-        //smsmSetFollow(ctx->sctx, avctx->name);
-    }
-    
+
 
     /* get the stream info */
     get_stream_info(avctx);

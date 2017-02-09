@@ -84,12 +84,12 @@ static int smemProducerGetShareMemory(struct smemContext * c, int size)
     // get share memory id
     reply = redisCommand(c->rctx,"SMEMGET %d",  size);
     if(reply){
-        //printf("reply type:%d, integer:%lld, len:%d, str:%s\n", reply->type, reply->integer, reply->len, reply->str);
+        //printf("[smem_client] reply type:%d, integer:%lld, len:%d, str:%s\n", reply->type, reply->integer, reply->len, reply->str);
         if(reply->type == REDIS_REPLY_INTEGER){
             mem_id = reply->integer;
         }
     }else{
-        printf("get share memory id reply error\n");
+        printf("[smem_client] get share memory id reply error\n");
         return -1;
     }
     freeReplyObject(reply);
@@ -153,7 +153,7 @@ void smemFreeShareMemory(struct smemContext * c, int id)
     // free share memory id
     reply = redisCommand(c->rctx,"SMEMFREE %d", id);
     if(!reply){
-        printf("[smemFreeShareMemory] SMEFREE reply error\n");
+        printf("[smem_client] smemFreeShareMemory SMEFREE reply error\n");
         return;
     }
     freeReplyObject(reply);
@@ -176,7 +176,7 @@ static void smemFreeShareMemory2(struct smemContext * c, int id)
     // free share memory id
     reply = redisCommand(c->rctx2,"SMEMFREE %d", id);
     if(!reply){
-        printf("[smemFreeShareMemory2] SMEFREE reply error\n");
+        printf("[smem_client] smemFreeShareMemory2 SMEFREE reply error\n");
         return;
     }
     freeReplyObject(reply);
@@ -220,7 +220,7 @@ static redisContext * smemCreateConnectUnix(const char *path)
 }
 
 
-struct smemContext * smemCreateProducer(const char *ip, int port, const char *name)
+struct smemContext * smemCreateProducer(const char *ip, int port, const char *channel)
 {
     struct smemContext *c;
 
@@ -231,7 +231,7 @@ struct smemContext * smemCreateProducer(const char *ip, int port, const char *na
     c->type = SMEM_CLIENT_TYPE_PRODUCER;
     c->connect_type = SMEM_CONNECT_TYPE_IP;
     strcpy(c->url, ip);
-    strcpy(c->channel, name);
+    strcpy(c->channel, channel);
     c->port = port;
 
     // create connect 
@@ -244,7 +244,7 @@ struct smemContext * smemCreateProducer(const char *ip, int port, const char *na
     return c;
 }
 
-struct smemContext * smemCreateProducerUnix(const char *path, const char *name)
+struct smemContext * smemCreateProducerUnix(const char *path, const char *channel)
 {
     struct smemContext *c;
 
@@ -255,7 +255,7 @@ struct smemContext * smemCreateProducerUnix(const char *path, const char *name)
     c->type = SMEM_CLIENT_TYPE_PRODUCER;
     c->connect_type = SMEM_CONNECT_TYPE_UNIX;
     strcpy(c->url, path);
-    strcpy(c->channel, name);
+    strcpy(c->channel, channel);
 
     // create connect 
     c->rctx = smemCreateConnectUnix(path);
@@ -283,28 +283,28 @@ static void subCallback(redisAsyncContext *c, void *r, void *priv) {
 
         
         if(reply->element[2]->type == REDIS_REPLY_INTEGER){
-            //printf("type:REDIS_REPLY_INTEGER, val=%lld\n", reply->element[2]->integer);
+            //printf("[smem_client] type:REDIS_REPLY_INTEGER, val=%lld\n", reply->element[2]->integer);
             mem_id = reply->element[2]->integer;
         }else if(reply->element[2]->type == REDIS_REPLY_STRING){
-            //printf("type:REDIS_REPLY_STRING, val=%s\n", reply->element[2]->str);
+            //printf("[smem_client] type:REDIS_REPLY_STRING, val=%s\n", reply->element[2]->str);
             mem_id = atoi(reply->element[2]->str);
         }
 
         if(mem_id <= 0)
             return;
 
-        //printf("mem_id=%d\n", mem_id);
+        //printf("[smem_client] mem_id=%d\n", mem_id);
 
         // write to queue
         if(!smem_queue_push(ctx, mem_id)){
             // push the val to queue failed, because the queue is full
 
             smemFreeShareMemory2(ctx, mem_id); // fixme: for test
-            printf("the queue is full, now to delete the new one\n");
+            printf("[smem_client] the queue is full, now to delete the new one\n");
             return;
 
             /*
-            printf("the queue is full, now to delete the oldest one and add the new one\n");
+            printf("[smem_client] the queue is full, now to delete the oldest one and add the new one\n");
             val = -1;
             smem_queue_pop(ctx, &val);
             if(val != -1){
@@ -323,21 +323,56 @@ static void subCallback(redisAsyncContext *c, void *r, void *priv) {
     //redisAsyncDisconnect(c);
 }
 
+static void setnameCallback(redisAsyncContext *c, void *r, void *priv) {
+    redisReply *reply = r;
+
+    struct smemContext *ctx = priv;
+
+    int mem_id = -1;
+    uint8_t *mem_ptr = NULL;
+    int val;
+    float rate=0;
+
+    printf("[smem_client] setnameCallback\n");
+
+    if (reply == NULL){
+        printf("[smem_client] setnameCallback, reply == NULL\n");
+        return;
+    } 
+
+    printf("[smem_client] setnameCallback, reply->type = %d, elements=%d\n", reply->type, reply->elements);
+
+    if(reply->type == REDIS_REPLY_ARRAY){
+        printf("[smem_client] setnameCallback, reply->type == REDIS_REPLY_ARRAY\n");
+    }else if(reply->type == REDIS_REPLY_STRING){
+        printf("[smem_client] setnameCallback, reply->type == REDIS_REPLY_STRING, val=%s\n", reply->str);
+    }else if(reply->type == REDIS_REPLY_INTEGER){
+        printf("[smem_client] setnameCallback, reply->type == REDIS_REPLY_INTEGER, val=%lld\n", reply->integer);
+    }
+
+    /* Disconnect after receiving the reply to GET */
+    //redisAsyncDisconnect(c);
+}
+
+
 static void connectCallback(const redisAsyncContext *c, int status) {
     if (status != REDIS_OK) {
-        printf("Error: %s\n", c->errstr);
+        printf("[smem_client] Error: %s\n", c->errstr);
         return;
     }
-    printf("Connected...\n");
+    printf("[smem_client] Connected...\n");
 }
 
 static void disconnectCallback(const redisAsyncContext *c, int status) {
     if (status != REDIS_OK) {
-        printf("Error: %s\n", c->errstr);
+        printf("[smem_client] Error: %s\n", c->errstr);
         return;
     }
-    printf("Disconnected...\n");
+    printf("[smem_client] Disconnected...\n");
 }
+
+
+
 
 static void * smemAsyncThread(void * h)
 {
@@ -353,7 +388,7 @@ static void * smemAsyncThread(void * h)
     if (!c->rasync || c->rasync->err) {
         /* Let *c leak for now... */
         if(c->rasync){
-            printf("redisAsyncConnect Error: %s\n", c->rasync->errstr);
+            printf("[smem_client] redisAsyncConnect Error: %s\n", c->rasync->errstr);
         }
 
         return NULL;
@@ -366,6 +401,11 @@ static void * smemAsyncThread(void * h)
     redisLibeventAttach(c->rasync,base);
     redisAsyncSetConnectCallback(c->rasync,connectCallback);
     redisAsyncSetDisconnectCallback(c->rasync,disconnectCallback);
+
+    if(strlen(c->name) > 0){
+        redisAsyncCommand(c->rasync, setnameCallback, (void *)c, "CLIENT SETNAME %s", c->name);
+    }
+    
     redisAsyncCommand(c->rasync, subCallback, (void *)c, "SMEMSUBSCRIBE %s", c->channel);
 
     event_base_dispatch(base);
@@ -373,7 +413,7 @@ static void * smemAsyncThread(void * h)
     return NULL;
 }
 
-struct smemContext * smemCreateConsumer(const char *ip, int port, const char *name)
+struct smemContext * smemCreateConsumerWithName(const char *ip, int port, const char *channel, const char * name)
 {
     struct smemContext *c;
 
@@ -385,7 +425,11 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char *na
     c->type = SMEM_CLIENT_TYPE_CONSUMER;
     c->connect_type = SMEM_CONNECT_TYPE_IP;
     strcpy(c->url, ip);
-    strcpy(c->channel, name);
+    strcpy(c->channel, channel);
+    if(name && strlen(name) > 0 && strlen(name) < sizeof(c->name)){
+        strcpy(c->name, name);
+    }
+    
     c->port = port;
 
 
@@ -420,7 +464,12 @@ struct smemContext * smemCreateConsumer(const char *ip, int port, const char *na
     return c;
 }
 
-struct smemContext * smemCreateConsumerUnix(const char *path, const char *name)
+struct smemContext * smemCreateConsumer(const char *ip, int port, const char *channel)
+{
+    return smemCreateConsumerWithName(ip, port, channel, NULL);
+}
+
+struct smemContext * smemCreateConsumerUnixWithName(const char *path, const char *channel, const char * name)
 {
     struct smemContext *c;
 
@@ -432,7 +481,9 @@ struct smemContext * smemCreateConsumerUnix(const char *path, const char *name)
     c->type = SMEM_CLIENT_TYPE_CONSUMER;
     c->connect_type = SMEM_CONNECT_TYPE_UNIX;
     strcpy(c->url, path);
-    strcpy(c->channel, name);
+    strcpy(c->channel, channel);
+    if(name)
+        strcpy(c->name, name);
 
     // create connect 
     c->rctx = smemCreateConnectUnix(path); 
@@ -465,6 +516,11 @@ struct smemContext * smemCreateConsumerUnix(const char *path, const char *name)
     return c;
 }
 
+struct smemContext * smemCreateConsumerUnix(const char *path, const char *channel)
+{
+    return smemCreateConsumerUnixWithName(path, channel, NULL);
+}
+
 
 void smemPublish(struct smemContext * c, int id)
 {
@@ -481,9 +537,34 @@ void smemPublish(struct smemContext * c, int id)
     // free share memory id
     reply = redisCommand(c->rctx,"SMEMPUBLISH %s %d", c->channel, id);
     if(!reply){
-        printf("SMEMPUBLISH reply error\n");
+        printf("[smem_client] SMEMPUBLISH reply error\n");
         return;
     }
     freeReplyObject(reply);
 }
 
+
+
+
+int smemSetName(struct smemContext * c, char * name)
+{
+
+    if(!c)
+        return SMEM_ERROR_INPUT_POINTER;
+
+    if(!c->rasync)
+        return SMEM_ERROR_INPUT_POINTER;
+
+
+
+    if(c->rasync){
+        printf("[smem_client] smemSetName before setname %s\n", name);
+        redisAsyncCommand(c->rasync, setnameCallback, (void *)c, "SETNAME %s", name);
+        printf("[smem_client] smemSetName after setname %s\n", name);
+
+    }
+
+    
+
+    return 0;
+}

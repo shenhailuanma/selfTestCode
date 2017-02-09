@@ -31,6 +31,7 @@ extern "C" {
 #define SMEM_ERROR_INPUT_POINTER    -2
 #define SMEM_ERROR_INPUT_VALUE      -3
 #define SMEM_ERROR_TYPE             -4
+#define SMEM_ERROR_REDIS_RESPONSE   -5  // redis response error
 
 #define SMEM_CONNECT_TYPE_IP        0
 #define SMEM_CONNECT_TYPE_UNIX      1
@@ -51,10 +52,8 @@ struct smemContext{
     char url[128];     /* the url of the redis */
     int port;          /* the port for redis ip connect */
     char channel[128]; /* the pub/sub channel name */
-    char follow[128];  /* is a key in redis that of the follow channel name */
 
-
-    char name[128]; /* the name of the smem context, used for identify clients */
+    char name[128]; /* the name of the smem context, used for identify clients, it will be set rasync for sub */
 
     /* simple queue */
     int queue[SMEM_MAX_QUEUE_LENGTH];
@@ -64,10 +63,12 @@ struct smemContext{
 
 
 
-struct smemContext * smemCreateProducer(const char *ip, int port, const char * name);
-struct smemContext * smemCreateConsumer(const char *ip, int port, const char * name);
-struct smemContext * smemCreateProducerUnix(const char *path, const char *name);
-struct smemContext * smemCreateConsumerUnix(const char *path, const char *name);
+struct smemContext * smemCreateProducer(const char *ip, int port, const char * channel);
+struct smemContext * smemCreateConsumer(const char *ip, int port, const char * channel);
+struct smemContext * smemCreateConsumerWithName(const char *ip, int port, const char * channel, const char * name);
+struct smemContext * smemCreateProducerUnix(const char *path, const char *channel);
+struct smemContext * smemCreateConsumerUnix(const char *path, const char *channel);
+struct smemContext * smemCreateConsumerUnixWithName(const char *path, const char *channel, const char * name);
 
 // free the smem context
 void smemFree(struct smemContext * c);
@@ -84,6 +85,8 @@ void smemPublish(struct smemContext * c, int id);
 // get the queue size 
 int smem_queue_size(struct smemContext * c);
 
+// set client name
+int smemSetName(struct smemContext * c, char * name);
 
 
 #ifdef __cplusplus

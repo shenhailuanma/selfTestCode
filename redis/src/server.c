@@ -128,6 +128,7 @@ struct redisCommand redisCommandTable[] = {
     {"smemrm",smemrmCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"smemsubscribe",smemsubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
     {"smempublish",smempublishCommand,3,"pltF",0,NULL,0,0,0,0,0},
+    {"smemswitch",smemswitchCommand,3,"w",0,NULL,1,-1,1,0,0},
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},

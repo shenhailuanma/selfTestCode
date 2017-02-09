@@ -361,6 +361,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
     /* Custom reply functions are not supported for pub/sub. This will fail
      * very hard when they are used... */
     if (reply->type == REDIS_REPLY_ARRAY) {
+
         assert(reply->elements >= 2);
         assert(reply->element[0]->type == REDIS_REPLY_STRING);
         stype = reply->element[0]->str;
@@ -373,9 +374,18 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
         /* Locate the right callback */
         assert(reply->element[1]->type == REDIS_REPLY_STRING);
+
         sname = sdsnewlen(reply->element[1]->str,reply->element[1]->len);
-        de = dictFind(callbacks,sname);
+
+
+
+        // get the first callback , all the callbacks are same.
+        dictIterator * di = dictGetIterator(callbacks);
+
+        //de = dictFind(callbacks,sname);
+        de = dictNext(di);
         if (de != NULL) {
+
             memcpy(dstcb,dictGetEntryVal(de),sizeof(*dstcb));
 
             /* If this is an unsubscribe message, remove it. */
@@ -390,7 +400,10 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
             }
         }
         sdsfree(sname);
+        dictReleaseIterator(di);
+
     } else {
+
         /* Shift callback for invalid commands. */
         __redisShiftCallback(&ac->sub.invalid,dstcb);
     }
@@ -593,7 +606,19 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     clen -= pvariant;
 
     // modify by zx for smem
-    if (hasnext && (strncasecmp(cstr,"subscribe\r\n",11) == 0 || strncasecmp(cstr,"smemsubscribe\r\n",15) == 0)) {  
+    if (hasnext && (strncasecmp(cstr,"smemsubscribe\r\n",15) == 0)) {  
+        c->flags |= REDIS_SUBSCRIBED;
+
+        /* Add every channel/pattern to the list of subscription callbacks. */
+        while ((p = nextArgument(p,&astr,&alen)) != NULL) {
+            sname = sdsnewlen(astr,alen);
+            if (pvariant)
+                dictReplace(ac->sub.patterns,sname,&cb);
+            else
+                dictReplace(ac->sub.channels,sname,&cb);
+        }
+
+    } else if (hasnext && (strncasecmp(cstr,"subscribe\r\n",11) == 0 )) {  
         c->flags |= REDIS_SUBSCRIBED;
 
         /* Add every channel/pattern to the list of subscription callbacks. */

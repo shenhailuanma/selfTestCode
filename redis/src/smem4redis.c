@@ -474,7 +474,7 @@ int smempubsubSubscribeChannel(client *c, robj *channel)
     addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
-    addReplyLongLong(c,dictSize(c->pubsub_channels));
+    addReplyLongLong(c,dictSize(c->smempubsub_channels));
     return retval;
 }
 
@@ -699,4 +699,141 @@ void smemFreeShareMemory(int timeout)
     serverLog(LL_NOTICE,"[smemFreeShareMemory] total_system_mem=%lu, share_memory_size=%lu, share_memory_limit=%lu, available_dict_size:%d, available_cnt:%d, available_free_cnt=%d, used_cnt:%d, used_free_cnt=%d.", 
         server.system_memory_size, server.share_memory_size, server.share_memory_limit,
         dictSize(server.smempubsub_memorys_available), available_cnt, available_free_cnt, dictSize(server.smempubsub_memorys), used_free_cnt);
+}
+
+
+void smemswitchCommand(client *c)
+{
+    robj *channel = NULL;
+    robj *pub_channel = c->argv[1]; // the publish channel will be subscribed
+    robj *sub_channel = c->argv[2]; // the subscribe channel that will to subscribe the publish channel
+
+    client *sub_channel_client = NULL;
+    list * list_will_move = NULL;
+    listNode * listNode_will_move = NULL;
+    int switch_cnt = 0;
+
+    dictIterator *di;
+    dictEntry *de;
+
+    list *list;
+    listNode *ln;
+    listIter li;
+
+    serverLog(LL_NOTICE,"[smemswitchCommand] %s will be subscribed by %s.", pub_channel->ptr, sub_channel->ptr);
+
+    // remove the client from old subscribe list
+    di = dictGetSafeIterator(server.smempubsub_channels);
+    int found = 0;
+
+    while((de = dictNext(di)) != NULL) {
+        channel = dictGetKey(de);
+        list = dictGetVal(de);
+        
+        serverLog(LL_NOTICE,"[smemswitchCommand] To find the channel:%s if or not has %s.", channel->ptr, sub_channel->ptr);
+
+        listRewind(list,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *sub_c = ln->value;
+
+            if(sub_c->name){
+
+                if(sub_c->name->type == OBJ_STRING){
+                    serverLog(LL_NOTICE,"[smemswitchCommand] channel:%s subcreibed by channel name:%s.", channel->ptr, sub_c->name->ptr);
+
+                    if(strcmp(sub_c->name->ptr, sub_channel->ptr) == 0){
+                        serverLog(LL_NOTICE,"[smemswitchCommand] channel:%s subcreibed by channel name:%s and will be delete.", channel->ptr, sub_c->name->ptr);
+
+                        sub_channel_client = sub_c;
+
+                        // delete the sub channel from the client sub list
+                        if (dictDelete(sub_c->smempubsub_channels, channel) == DICT_OK) {
+                            serverLog(LL_NOTICE,"[smemswitchCommand] channel:%s subcreibed by channel name:%s and delete from clist list ok.", channel->ptr, sub_c->name->ptr);
+
+                            // Remove the client from the channel -> clients list hash table 
+                            //listDelNode(list,ln);
+                            list_will_move = list;
+                            listNode_will_move = ln;
+
+                            break;
+
+                        }
+
+                        // delete the client from this sub list
+
+                    }
+                    
+                }
+            }else{
+                serverLog(LL_NOTICE,"[smemswitchCommand] channel:%s subcreibed by channel no name.", channel->ptr);
+            }
+
+        } 
+    }
+    dictReleaseIterator(di);
+
+#if 0
+    // get the channel that will be subcribe, and then add the new client to subcribe
+    de = dictFind(server.smempubsub_channels, pub_channel);
+    if (de) {
+        list = dictGetVal(de);
+
+        serverLog(LL_NOTICE,"[smemswitchCommand] will add new client %s to %s subcreibed list.", sub_channel_client->name->ptr, pub_channel->ptr);
+
+        #if 1
+        if(sub_channel_client){
+            /* Add the channel to the client -> channels hash table */
+            if (dictAdd(sub_channel_client->smempubsub_channels, pub_channel, NULL) == DICT_OK) {
+
+                //incrRefCount(channel);
+
+                /* Add the client to the channel -> list of clients hash table */
+                listAddNodeTail(list, sub_channel_client);
+
+
+            } 
+
+            // Add the client to the channel -> list of clients hash table 
+            listAddNodeTail(list, sub_channel_client);
+        }
+        #endif 
+    }
+#endif
+
+    if(sub_channel_client){
+        // Add the channel to the client -> channels hash table 
+        if (dictAdd(sub_channel_client->smempubsub_channels, pub_channel, NULL) == DICT_OK) {
+
+            serverLog(LL_NOTICE,"[smemswitchCommand] after add pub_channel:%s to sub_channel_client->smempubsub_channels.", pub_channel->ptr);
+
+            incrRefCount(pub_channel);
+
+            // get the channel that will be subcribe, and then add the new client to subcribe
+            de = dictFind(server.smempubsub_channels, pub_channel);
+            if (de == NULL) {
+                list = listCreate();
+
+                dictAdd(server.smempubsub_channels, pub_channel, list);
+                incrRefCount(pub_channel);
+            } else {
+                list = dictGetVal(de);
+            }
+
+
+            /* Add the client to the channel -> list of clients hash table */
+            //listAddNodeTail(list, sub_channel_client);
+            if(list_will_move)
+                smemlistMoveNode(list_will_move, list , listNode_will_move);
+
+        } 
+
+    }
+
+
+
+    
+
+    addReplyLongLong(c,switch_cnt);
+
+    return C_OK;
 }

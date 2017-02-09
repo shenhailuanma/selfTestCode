@@ -1506,6 +1506,7 @@ void smempublishCommand(client *c);
 void smemsubscribeCommand(client *c);   
 int  smempubsubUnsubscribeAllChannels(client *c, int notify);
 void smemFreeShareMemory(int timeout);
+void smemswitchCommand(client *c);
 
 void authCommand(client *c);
 void pingCommand(client *c);
