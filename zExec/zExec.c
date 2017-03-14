@@ -4,7 +4,7 @@
 #include <sys/wait.h>  
 #include <errno.h>  
 #include <unistd.h>  
-
+#include <stdlib.h>
 
 int doExecCommand(char * command)
 {
@@ -34,6 +34,21 @@ int doExecCommand(char * command)
 
     return status;
 
+}
+
+
+struct zExecObject * createZExecObject(char * command)
+{
+    if(!command){
+        return NULL;
+    }
+
+    struct zExecObject * obj = (struct zExecObject *)calloc(sizeof(struct zExecObject));
+    if(obj){
+        
+    }
+
+    return NULL:
 }
 
 
