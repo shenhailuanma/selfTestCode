@@ -310,74 +310,101 @@ static int rebuild_timestamp(AVFormatContext *avctx, struct memory_info * m_info
 
     av_log(avctx, AV_LOG_VERBOSE, "[rebuild_timestamp] before rebuild pts: %lld, dts: %lld\n", m_info->pts, m_info->dts);
 
+    // 1. pts/pts转换成输出timebase的时间戳
     int64_t pts = av_rescale_q(m_info->pts, ctx->in_timebase[m_info->index], SMEM_TIME_BASE_Q);
     int64_t dts = av_rescale_q(m_info->dts, ctx->in_timebase[m_info->index], SMEM_TIME_BASE_Q);
 
     int64_t dt;
+    int64_t maybe_out_dts = 0;
+
+
 
     if(m_info->index == 0){
-        // the first number stream is the timestamp rebuild base stream 
+        // 2. 定义第一个流（之后也可以指定）为基准流
+        // 3. 基准流只判断自己的时间戳抖动，若超出抖动范围，则只叠加理论间隔值，保证时间戳单调递增。
 
+        // 判断当前帧与前一帧的时间间隔是否在规定范围内
         if(SMEM_NUM_IF_OUT_RANGE(dts - ctx->last_in_ts[m_info->index], 0, 5*ctx->should_duration[m_info->index])){
             ctx->first_in_ts[m_info->index] = dts;
 
-            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the new dts: %lld is out of the range, should_duration[%d]:%lld\n", m_info->index, ctx->last_in_ts[m_info->index], dts, m_info->index, ctx->should_duration[m_info->index]);
+            av_log(avctx, AV_LOG_WARNING, 
+                "[rebuild_timestamp] index:%d, last dts: %lld, the new dts: %lld is out of the range, should_duration[%d]:%lld\n", 
+                m_info->index, ctx->last_in_ts[m_info->index], dts, m_info->index, ctx->should_duration[m_info->index]);
+
+            // 时间戳跳动幅度大，修正，增加理论间隔值
             *out_dts = ctx->last_out_ts[m_info->index] + ctx->should_duration[m_info->index];
             
-
         }else{
+            // 时间戳跳动幅度在合理范围，叠加差值
             *out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[m_info->index]);
         }
 
-        *out_pts = *out_dts + (pts - dts) + 2*ctx->should_duration[m_info->index]; //for b frame, to make pts greater than dts and greater than 0
+        // 根据DTS生成PTS，多加2个理论差值是因为防止有B帧的场景，在流初期PTS值为负的异常
+        *out_pts = *out_dts + (pts - dts) + 2*ctx->should_duration[m_info->index]; 
 
+        // 记录基准流开始标识
         ctx->base_stream_start = 1;
 
+
     }else{
+
+        // 4. 其它流严格参考基准流的相对位置，保证“输出流中与基准流的时间戳相对位置不变”，且“单调递增”。
+
+        // 基准流没开始，其它流也不开始
         if(ctx->base_stream_start != 1){
             av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, base stream not start, skip.\n", m_info->index);
             return -1;
         }
 
-        // other number streams check the timestamp by the base stream
-        if(SMEM_NUM_IF_OUT_RANGE(dts - ctx->last_in_ts[m_info->index], 0, 5*ctx->should_duration[m_info->index])){
-            ctx->first_in_ts[m_info->index] = dts;
+        // 获取当前流时间戳与基准流输入时间戳的差值，即获得当前流与基准流的时间戳相对位置
+        dt = dts - ctx->last_in_ts[0];
 
-            av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, last dts: %lld, the new dts: %lld is out of the range, should_duration[%d]:%lld\n", m_info->index, ctx->last_in_ts[m_info->index], dts, m_info->index, ctx->should_duration[m_info->index]);
+        // 根据差值及基准流的输出时间戳，可以计算出当前流的输出时间戳，
+        // 该时间戳可以保证输出流中与基准流的时间戳相对位置不变
+        maybe_out_dts = ctx->last_out_ts[0] + dt;
+
+
+        // 判断新计算出来的时间戳与当前流是否能够保证单调递增
+        if(maybe_out_dts <= ctx->last_out_ts[m_info->index]){
+            av_log(avctx, AV_LOG_WARNING, 
+                "[rebuild_timestamp] index:%d, the local out time(%lld) < last out time(%lld), skip.\n",
+                m_info->index, maybe_out_dts, ctx->last_out_ts[m_info->index]);
             
+            // 记录当前流的输入时间戳
+            ctx->last_in_ts[m_info->index] = dts;
 
-            // the others streams should after base stream
-            if(ctx->first_in_ts[m_info->index] < ctx->first_in_ts[0]){
-                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, the local stream time(%lld) < base stream time(%lld), skip.\n"
-                    , m_info->index, ctx->first_in_ts[m_info->index], ctx->first_in_ts[0]);
-
-                return -1;
-            }
-
-            dt = ctx->first_in_ts[m_info->index] - ctx->first_in_ts[0]; // the dt of the new streams
-
-            // the streams out ts should same as dt
-            *out_dts = ctx->last_out_ts[0] + SMEM_NUM_IN_RANGE(dt, ctx->should_duration[m_info->index], 10*ctx->should_duration[m_info->index]);
-
-            if(*out_dts < ctx->last_out_ts[m_info->index]){
-                av_log(avctx, AV_LOG_WARNING, "[rebuild_timestamp] index:%d, the local out time(%lld) < last out time(%lld), skip.\n",
-                    m_info->index,*out_dts, ctx->last_out_ts[m_info->index]);
-                return -1;
-            }
-
-
-
-        }else{
-
-
-            *out_dts = ctx->last_out_ts[m_info->index] + (dts - ctx->last_in_ts[m_info->index]);
+            return -1; 
         }
 
+        // 对于maybe_out_dts > 当前流最近输出帧的场景
+        // 若是基准流先跳跃，时间戳是在基准流之后的其它流参照产生，是准确的；
+        // 若是其它流先跳跃，参照的是跳跃前的基准流，产生的时间戳是不准确的，
+        //      若新产生的其它流时间戳小于之前的时间戳，异常，直接丢弃，
+        //      若新产生的其它流时间戳大于之前的时间戳，设定范围，超范围丢弃。
+        // 注：对于这个范围，大了，后面真正的流会因为之前跳跃幅度大，而舍弃正常数据，
+        //     若这个范围设的比较小，则正常流若偶尔正常跳跃也会被丢弃。
+        if(SMEM_NUM_IF_OUT_RANGE(maybe_out_dts - ctx->last_out_ts[m_info->index], 0, 5*SMEM_TIME_BASE_Q)){
+            // 进到这里，说明该流的时间戳有了较大的跳跃，超越了设置的正常跳跃范围，丢弃
+            // 有个隐患：在特殊情况下，正常的跳跃值超过了设置的正常范围，则之后的连续帧也会被丢弃。。。
+            av_log(avctx, AV_LOG_WARNING, 
+                "[rebuild_timestamp] index:%d, the local out time(%lld) - last out time(%lld) out of range, skip.\n",
+                m_info->index, maybe_out_dts, ctx->last_out_ts[m_info->index]);
+
+            // 记录当前流的输入时间戳
+            ctx->last_in_ts[m_info->index] = dts;
+            return -1;   
+        }
+
+
+        *out_dts = maybe_out_dts;
         *out_pts = *out_dts + (pts - dts) + 2*ctx->should_duration[m_info->index];
+
 
     }
 
+    // 记录当前流的输入时间戳
     ctx->last_in_ts[m_info->index] = dts;
+    // 记录当前流的输出时间戳
     ctx->last_out_ts[m_info->index] = *out_dts;
 
 
