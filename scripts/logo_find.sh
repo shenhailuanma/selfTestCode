@@ -1,13 +1,7 @@
 #!/bin/bash
 
-set -e
-
-
-
-
-
-
-
+#set -e
+#set -x
 
 ###### Functions ######
 
@@ -84,8 +78,13 @@ function crop_pics_xigua() {
 	for((i=0;i<$pics_number;i++))
     do
         echo $i
-        #ffmpeg -i $video_path -ss 5 -vframes 1 -f image2 -y $pics_dest/$(basename $video_path)_src_$i.jpg
-        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.079:ih*0.15:iw*0.902:ih*0.04 -f image2 -y $pics_dest/$(basename $video_path)_$i.jpg
+        #ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.08:ih*0.17:iw*0.9:ih*0.035 -f image2 -y $pics_dest/$(basename $video_path)_$i.jpg
+        #ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.15:ih*0.09:iw*0.83:ih*0.02 -f image2 -y $pics_dest/$(basename $video_path)_${i}_shu.jpg
+
+        # 新旧两种logo共同区域
+        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.2:ih*0.18:iw*0.775:ih*0.035 -f image2 -y $pics_dest/$(basename $video_path)_$i.jpg
+        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.29:ih*0.09:iw*0.69:ih*0.02 -f image2 -y $pics_dest/$(basename $video_path)_${i}_shu.jpg
+
     done
 
 	echo "crop_pics_xigua over."
@@ -98,25 +97,42 @@ function crop_pics_bilibili() {
 	pics_number=$2
 	pics_dest=$3
 
-	for((i=0;i<$pics_number;i++))
-    do
-        echo $i
-        # 左上
-        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.12:ih*0.045:iw*0.03:ih*0.04 -f image2 -y $pics_dest/$(basename $video_path)_${i}_LU.jpg
 
-        # 左下
-        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.12:ih*0.045:iw*0.03:ih*0.92 -f image2 -y $pics_dest/$(basename $video_path)_${i}_LB.jpg
+    # 左上
+    ffmpeg -i $video_path -ss 5 -vf 'crop=iw*0.13:ih*0.05:iw*0.03:ih*0.04,fps=fps=1' -t $pics_number -f image2 -y $pics_dest/$(basename $video_path)_%03d_LU.jpg
 
-        # 右上
-        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.12:ih*0.045:iw*0.85:ih*0.04 -f image2 -y $pics_dest/$(basename $video_path)_${i}_RU.jpg
+    # 左下
+    ffmpeg -i $video_path -ss 5 -vf 'crop=iw*0.13:ih*0.05:iw*0.03:ih*0.92,fps=fps=1' -t $pics_number -f image2 -y $pics_dest/$(basename $video_path)_%03d_LB.jpg
 
-        # 右下
-        ffmpeg -i $video_path -ss 5 -vframes 1 -vf crop=iw*0.12:ih*0.045:iw*0.85:ih*0.92 -f image2 -y $pics_dest/$(basename $video_path)_${i}_RB.jpg
+    # 右上
+    ffmpeg -i $video_path -ss 5 -vf 'crop=iw*0.13:ih*0.05:iw*0.85:ih*0.04,fps=fps=1' -t $pics_number -f image2 -y $pics_dest/$(basename $video_path)_%03d_RU.jpg
 
-    done
+    # 右下
+    ffmpeg -i $video_path -ss 5 -vf 'crop=iw*0.13:ih*0.05:iw*0.85:ih*0.92,fps=fps=1' -t $pics_number -f image2 -y $pics_dest/$(basename $video_path)_%03d_RB.jpg
+
+
 
 	echo "crop_pics_bilibili over."
 	return 0
+}
+
+
+# 从图片中识别logo
+# usage: crop_pics $pic_path
+# @param: pic_path 图片路径
+function find_logo() {
+    #echo $1
+    #tesseract $1 /tmp/result -l eng
+    tesseract $1 /tmp/result -l mfont0 -psm 7
+    cat /tmp/result.txt
+
+
+    cat /tmp/result.txt | grep "B"
+    if [ $? -eq 0 ] ;then
+        echo "============= find: $1 ==========="
+        echo "============= find: $1 ===========" >> result.txt
+    fi
+
 }
 
 
@@ -124,9 +140,9 @@ function crop_pics_bilibili() {
 
 video_source_path="/Users/zhangxu/video/video/"
 out_path="/Users/zhangxu/video/pics"
-xigua_files="xigua01.mp4 xigua02.mp4 xigua03.mp4 xigua04.mp4"
+xigua_files="xigua01.mp4 xigua02.mp4 xigua03.mp4 xigua04.mp4 xigua05.mp4 xigua06.mp4 xigua07.mp4 xigua08.mp4 xigua09.mp4 xigua10.mp4 xigua20.mp4 xigua21.mp4 xigua22.mp4 xigua23.mp4 xigua24.mp4 xigua25.mp4"
 youku_files="youku01.mp4 youku02.mp4 youku03.mp4 youku04.mp4 youku05.mp4 youku06.mp4"
-bilibili_files="bilibili01.mp4 bilibili02.mp4 bilibili03.flv bilibili04.flv bilibili05.flv bilibili06.mp4 bilibili07.mp4"
+bilibili_files="bilibili01.mp4 bilibili02.mp4 bilibili03.flv bilibili04.flv bilibili05.flv bilibili06.mp4 bilibili07.mp4 bilibili08.mp4 bilibili09.mp4 bilibili10.mp4 bilibili11.mp4"
 
 for one in $xigua_files;do
     echo $video_source_path$one
@@ -140,7 +156,15 @@ done
 
 for one in $bilibili_files;do
     echo $video_source_path$one
-    crop_pics 'bilibili' $video_source_path$one 1 $out_path
+    #crop_pics 'bilibili' $video_source_path$one 5 $out_path
+done
+
+# 识别指定目录的所有图片
+echo "start" > result.txt
+for file in $out_path/*
+do
+    echo $file
+    find_logo $file
 done
 
 

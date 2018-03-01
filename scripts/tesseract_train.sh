@@ -18,7 +18,7 @@ FONTNAME="mfont"
 # 语法：tesseract [lang].[fontname].exp[num].tif [lang].[fontname].exp[num] batch.nochop makebox  
 # lang为语言名称，fontname为字体名称，num为序号；在tesseract中，一定要注意格式。
 #tesseract $LANGNAME.$FONTNAME.exp0.tif $LANGNAME.$FONTNAME.exp0 -l eng -psm 7 batch.nochop makebox
-
+#tesseract mlang.mfont.exp0.tif mlang.mfont.exp0 -l eng -psm 7 batch.nochop makebox
 
 ### 4. 修改box文件(手动)
 # 切换到jTessBoxEditor工具的Box Editor页，点击open，打开前面的tiff文件，工具会自动加载对应的box文件。
