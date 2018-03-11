@@ -70,7 +70,7 @@ userauth_passwd(Authctxt *authctxt)
 		authenticated = 1;
 	memset(password, 0, len);
 	free(password);
-	return authenticated;
+	return authenticated; 
 }
 
 Authmethod method_passwd = {

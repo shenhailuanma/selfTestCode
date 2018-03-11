@@ -73,6 +73,8 @@ extern u_int session_id2_len;
 static int
 userauth_pubkey(Authctxt *authctxt)
 {
+	verbose("zx, userauth_pubkey start");
+
 	Buffer b;
 	Key *key = NULL;
 	char *pkalg, *userstyle;
@@ -186,6 +188,9 @@ done:
 		key_free(key);
 	free(pkalg);
 	free(pkblob);
+
+	verbose("zx, userauth_pubkey over");
+
 	return authenticated;
 }
 

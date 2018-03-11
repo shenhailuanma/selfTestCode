@@ -1060,6 +1060,7 @@ server_accept_inetd(int *sock_in, int *sock_out)
 static void
 server_listen(void)
 {
+	verbose("zx, server_listen start");
 	int ret, listen_sock, on = 1;
 	struct addrinfo *ai;
 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
@@ -1123,6 +1124,8 @@ server_listen(void)
 
 	if (!num_listen_socks)
 		fatal("Cannot bind any address.");
+
+	verbose("zx, server_listen over");
 }
 
 /*
@@ -1132,6 +1135,7 @@ server_listen(void)
 static void
 server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 {
+	verbose("zx, server_accept_loop start");
 	fd_set *fdset;
 	int i, j, ret, maxfd;
 	int key_used = 0, startups = 0;
@@ -1308,9 +1312,9 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 			/* Parent.  Stay in the loop. */
 			platform_post_fork_parent(pid);
 			if (pid < 0)
-				error("fork: %.100s", strerror(errno));
+				error("zx, fork: %.100s", strerror(errno));
 			else
-				debug("Forked child %ld.", (long)pid);
+				debug("zx, Forked child %ld.", (long)pid);
 
 			close(startup_p[1]);
 
@@ -1345,6 +1349,8 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 		if (num_listen_socks < 0)
 			break;
 	}
+
+	verbose("zx, server_accept_loop over");
 }
 
 
@@ -1874,6 +1880,7 @@ main(int ac, char **av)
 	if (inetd_flag) {
 		server_accept_inetd(&sock_in, &sock_out);
 	} else {
+		verbose("zx, Get a connection, from listening TCP socket");
 		platform_pre_listen();
 		server_listen();
 
@@ -1925,6 +1932,7 @@ main(int ac, char **av)
 #endif
 
 	if (rexec_flag) {
+		verbose("zx, Do rexec.");
 		int fd;
 
 		debug("rexec start in %d out %d newsock %d pipe %d sock %d",
@@ -1985,6 +1993,7 @@ main(int ac, char **av)
 	 * Register our connection.  This turns encryption off because we do
 	 * not have a key.
 	 */
+	verbose("zx, Register our connection.  This turns encryption off because we do not have a key.");
 	packet_set_connection(sock_in, sock_out);
 	packet_set_server();
 
@@ -2033,7 +2042,7 @@ main(int ac, char **av)
 #endif /* LIBWRAP */
 
 	/* Log the connection. */
-	verbose("Connection from %.500s port %d", remote_ip, remote_port);
+	verbose("zx, Connection from %.500s port %d", remote_ip, remote_port);
 
 	/*
 	 * We don't want to listen forever unless the other side
@@ -2076,9 +2085,11 @@ main(int ac, char **av)
 	/* perform the key exchange */
 	/* authenticate user and start session */
 	if (compat20) {
+		verbose("zx, do_ssh2_kex");
 		do_ssh2_kex();
 		do_authentication2(authctxt);
 	} else {
+		verbose("zx, do_ssh1_kex");
 		do_ssh1_kex();
 		do_authentication(authctxt);
 	}
@@ -2092,6 +2103,7 @@ main(int ac, char **av)
 	}
 
  authenticated:
+ 	verbose("zx, authenticated");
 	/*
 	 * Cancel the alarm we set to limit the time taken for
 	 * authentication.
@@ -2137,15 +2149,17 @@ main(int ac, char **av)
 	    options.client_alive_count_max);
 
 	/* Start session. */
+	verbose("zx, Start session");
 	do_authenticated(authctxt);
 
 	/* The connection has been terminated. */
+	verbose("zx, The connection has been terminated.");
 	packet_get_state(MODE_IN, NULL, NULL, NULL, &ibytes);
 	packet_get_state(MODE_OUT, NULL, NULL, NULL, &obytes);
-	verbose("Transferred: sent %llu, received %llu bytes",
+	verbose("zx, Transferred: sent %llu, received %llu bytes",
 	    (unsigned long long)obytes, (unsigned long long)ibytes);
 
-	verbose("Closing connection to %.500s port %d", remote_ip, remote_port);
+	verbose("zx, Closing connection to %.500s port %d", remote_ip, remote_port);
 
 #ifdef USE_PAM
 	if (options.use_pam)

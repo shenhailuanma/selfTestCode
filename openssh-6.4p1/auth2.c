@@ -175,15 +175,18 @@ done:
 void
 do_authentication2(Authctxt *authctxt)
 {
+	verbose("zx, do_authentication2 start");
 	dispatch_init(&dispatch_protocol_error);
 	dispatch_set(SSH2_MSG_SERVICE_REQUEST, &input_service_request);
 	dispatch_run(DISPATCH_BLOCK, &authctxt->success, authctxt);
+	verbose("zx, do_authentication2 end");
 }
 
 /*ARGSUSED*/
 static void
 input_service_request(int type, u_int32_t seq, void *ctxt)
 {
+	verbose("zx, input_service_request start");
 	Authctxt *authctxt = ctxt;
 	u_int len;
 	int acceptit = 0;
@@ -212,12 +215,16 @@ input_service_request(int type, u_int32_t seq, void *ctxt)
 		packet_disconnect("bad service request %s", service);
 	}
 	free(service);
+
+	verbose("zx, input_service_request over");
 }
 
 /*ARGSUSED*/
 static void
 input_userauth_request(int type, u_int32_t seq, void *ctxt)
 {
+	verbose("zx, input_userauth_request start");
+
 	Authctxt *authctxt = ctxt;
 	Authmethod *m = NULL;
 	char *user, *service, *method, *style = NULL;
@@ -286,7 +293,7 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 	/* try to authenticate user */
 	m = authmethod_lookup(authctxt, method);
 	if (m != NULL && authctxt->failures < options.max_authtries) {
-		debug2("input_userauth_request: try method %s", method);
+		verbose("zx, input_userauth_request: try method %s", method);
 		authenticated =	m->userauth(authctxt);
 	}
 	userauth_finish(authctxt, authenticated, method, NULL);
@@ -294,6 +301,8 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 	free(service);
 	free(user);
 	free(method);
+
+	verbose("zx, input_userauth_request over");
 }
 
 void

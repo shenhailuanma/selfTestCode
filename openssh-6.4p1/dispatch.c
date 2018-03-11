@@ -83,6 +83,7 @@ dispatch_set(int type, dispatch_fn *fn)
 void
 dispatch_run(int mode, volatile sig_atomic_t *done, void *ctxt)
 {
+	verbose("zx, dispatch_run start");
 	for (;;) {
 		int type;
 		u_int32_t seqnr;
@@ -98,7 +99,10 @@ dispatch_run(int mode, volatile sig_atomic_t *done, void *ctxt)
 			(*dispatch[type])(type, seqnr, ctxt);
 		else
 			packet_disconnect("protocol error: rcvd type %d", type);
-		if (done != NULL && *done)
+		if (done != NULL && *done) {
+			verbose("zx, dispatch_run done");
 			return;
+		}
 	}
+	verbose("zx, dispatch_run over");
 }
