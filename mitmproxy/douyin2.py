@@ -14,7 +14,7 @@ def response(flow):
             # 设置视频名
             filename = path + str(num) + '.mp4'
             print("xxxxx to download video:" + filename)
-            
+
             # 使用request获取视频url的内容
             # stream=True作用是推迟下载响应体直到访问Response.content属性
             # res = requests.get(flow.request.url, stream=True)
@@ -25,5 +25,4 @@ def response(flow):
             #     f.flush()
             #     print(filename + '下载完成')
             num += 1
-
 
