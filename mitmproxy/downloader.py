@@ -12,12 +12,13 @@ import os
 
 class DouyinDownloader(object):
     """docstring for DouyinDownloader"""
-    def __init__(self):
+    def __init__(self, download_dir = '/tmp/download/'):
         super(DouyinDownloader, self).__init__()
         # self.arg = arg
 
-        self.downloadDir = '/Users/zhangxu/sourceVideo/douyin/'
-        self.downloadTmpDir = '/Users/zhangxu/sourceVideo/douyinTmp/'
+        self.downloadCount = 0
+
+        self.downloadDir = download_dir
 
         # redis connect
         self.redisClient = redis.StrictRedis(host='115.159.157.98', port=17379, db=0, password='redis12346')
@@ -49,9 +50,15 @@ class DouyinDownloader(object):
 
     def downloadOne(self, task):
 
-        filename = str(time.time()) + ".mp4"
-        print("to download video:" + filename)
-        filepath = self.downloadDir + filename
+        nowtime = time.time()
+        filename = str(nowtime) + ".mp4"
+        dirname = time.strftime("%Y-%m-%d", time.localtime()) 
+        filepath = self.downloadDir + dirname + '/' + filename
+
+        print("to download video:" + filepath)
+
+        # prepare dir
+        os.makedirs(self.downloadDir + dirname, 666)
 
         # stream=True作用是推迟下载响应体直到访问Response.content属性
         res = requests.get(task, stream=True)
@@ -60,7 +67,10 @@ class DouyinDownloader(object):
         with open(filepath, 'ab') as f:
             f.write(res.content)
             f.flush()
-            print(filename + '下载完成')
+
+            self.downloadCount = self.downloadCount + 1
+            print(filename + '下载完成' + ', count:' + str(self.downloadCount))
+
 
             # 计算文件md5
             file_md5 = self.get_file_md5(filepath)
@@ -111,6 +121,6 @@ class DouyinDownloader(object):
 
 
 if __name__ == '__main__':
-    douyin = DouyinDownloader()
+    douyin = DouyinDownloader('/root/douyin/')
     douyin.downloadAll()
 
