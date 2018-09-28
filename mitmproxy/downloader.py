@@ -58,7 +58,8 @@ class DouyinDownloader(object):
         print("to download video:" + filepath)
 
         # prepare dir
-        os.makedirs(self.downloadDir + dirname, 666)
+        if os.path.exists(self.downloadDir + dirname) == False:
+            os.makedirs(self.downloadDir + dirname, 666)
 
         # stream=True作用是推迟下载响应体直到访问Response.content属性
         res = requests.get(task, stream=True)
