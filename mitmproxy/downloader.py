@@ -55,11 +55,13 @@ class DouyinDownloader(object):
         dirname = time.strftime("%Y-%m-%d", time.localtime()) 
         filepath = self.downloadDir + dirname + '/' + filename
 
+        downloadDirNow = self.downloadDir + dirname
+
         print("to download video:" + filepath)
 
         # prepare dir
-        if os.path.exists(self.downloadDir + dirname) == False:
-            os.makedirs(self.downloadDir + dirname, 666)
+        if os.path.exists(downloadDirNow) == False:
+            os.makedirs(downloadDirNow, 666)
 
         # stream=True作用是推迟下载响应体直到访问Response.content属性
         res = requests.get(task, stream=True)
@@ -79,7 +81,7 @@ class DouyinDownloader(object):
 
 
             # 使用md5值作为新文件名
-            new_file_path = self.downloadDir + file_md5 + ".mp4"
+            new_file_path = downloadDirNow + '/' + file_md5 + ".mp4"
 
 
             videoInfo = self.mysqlDB.get_video_info_by_md5(file_md5)
