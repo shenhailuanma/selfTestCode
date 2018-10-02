@@ -10,7 +10,8 @@ class Action():
             "platformName": "Android",
             "deviceName": "Redmi 4X",
             "appPackage": "com.ss.android.ugc.aweme",
-            "appActivity": ".main.MainActivity"
+            "appActivity": ".main.MainActivity",
+            "noReset": True
         }
         # 指定Appium Server
         self.server = 'http://localhost:4723/wd/hub'
@@ -28,8 +29,17 @@ class Action():
     def scroll(self):
         # 无限滑动
         while True:
+            try:
+                starTextElement = self.driver.find_element_by_class_name('android.widget.TextView')
+                if starTextElement != None:
+                    print(starTextElement.get_attribute('text'))
+                else:
+                    print("not find starTextElement")
+            except Exception as e:
+                print(e)
+
             # 模拟滑动
-            self.driver.swipe(self.start_x, self.start_y, self.start_x, self.start_y - self.distance, 300)
+            self.driver.swipe(self.start_x, self.start_y, self.start_x, self.start_y - self.distance, 200)
             # 设置延时等待
             sleep(random.randint(10,30))
     def main(self):

@@ -7,7 +7,7 @@ import time
 import hashlib
 from common.Database import Database
 import os
-
+import owncloud
 
 
 class DouyinDownloader(object):
@@ -17,28 +17,40 @@ class DouyinDownloader(object):
         # self.arg = arg
 
         self.downloadCount = 0
+        self.uploadCount = 0
 
-        self.downloadDir = download_dir
+        if download_dir.endswith('/'):
+            self.downloadDir = download_dir
+        else:
+            self.downloadDir = download_dir + '/'
 
         # redis connect
         self.redisClient = redis.StrictRedis(host='115.159.157.98', port=17379, db=0, password='redis12346')
 
         # mysql
         self.mysqlDB = Database(host='localhost', user='root', passwd='zx#Video2018', database='video')
+
+        # nextcloud
+        self.oc = owncloud.Client('http://39.107.241.50:18080')
+        self.oc.login('zhangxu', 'zx@12346')
         
     def downloadAll(self):
         while True:
-            task = self.getTask()
-            if task != None:
-                print("get one task, to download")
-                print(task)
+            try:
+                task = self.getTask()
+                if task != None:
+                    print("get one task, to download")
+                    print(task)
 
-                # 判断是否已经存在
-                exist = self.videoExist(task)
-                if exist == True:
-                    print("video is exist, return")
-                else:
-                    self.downloadOne(task)
+                    # 判断是否已经存在
+                    exist = self.videoExist(task)
+                    if exist == True:
+                        print("video is exist, return")
+                    else:
+                        self.downloadOne(task)
+            except Exception as e:
+                print("downloadAll error:")
+                print(e)
 
             time.sleep(1)
 
@@ -52,10 +64,10 @@ class DouyinDownloader(object):
 
         nowtime = time.time()
         filename = str(nowtime) + ".mp4"
-        dirname = time.strftime("%Y-%m-%d", time.localtime()) 
-        filepath = self.downloadDir + dirname + '/' + filename
+        # dirname = time.strftime("%Y-%m-%d", time.localtime()) 
+        filepath = self.downloadDir + filename
 
-        downloadDirNow = self.downloadDir + dirname
+        downloadDirNow = self.downloadDir
 
         print("to download video:" + filepath)
 
@@ -81,16 +93,21 @@ class DouyinDownloader(object):
 
 
             # 使用md5值作为新文件名
-            new_file_path = downloadDirNow + '/' + file_md5 + ".mp4"
+            new_file_path = downloadDirNow + file_md5 + ".mp4"
 
 
             videoInfo = self.mysqlDB.get_video_info_by_md5(file_md5)
             if videoInfo != None:
                 # 文件已经存在
                 print("video same md5 is exist, return")
+                # 删除文件
+                os.remove(filepath)
             else:
                 # 重命名
                 os.rename(filepath, new_file_path)
+
+                # upload
+                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4")
 
                 # 信息插入数据库
                 urlmd5 = hashlib.md5(task).hexdigest()
@@ -121,6 +138,29 @@ class DouyinDownloader(object):
         f.close()
         md5 = str(hash_code).lower()
         return md5
+
+    def uploadFileToCloud(self, file_path, file_name):
+        try:
+            self.oc.login('zhangxu', 'zx@12346')
+
+            dirname = time.strftime("%Y-%m-%d", time.localtime()) 
+            dirname = dirname + '-%d' %(self.uploadCount/1000)
+
+            try:
+                self.oc.mkdir(dirname)
+            except Exception as e:
+                print("mkdir failed:" + str(e))
+
+            # upload
+            self.oc.put_file(dirname + '/' + file_name, file_path)
+
+            self.uploadCount = self.uploadCount + 1
+            # remove the file
+            os.remove(file_path)
+            self.oc.logout()
+        except Exception as e:
+            print("uploadFileToCloud error:")
+            print(e)
 
 
 if __name__ == '__main__':
