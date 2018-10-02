@@ -41,7 +41,7 @@ class Action():
             # 模拟滑动
             self.driver.swipe(self.start_x, self.start_y, self.start_x, self.start_y - self.distance, 200)
             # 设置延时等待
-            sleep(random.randint(10,30))
+            sleep(random.randint(3,20))
     def main(self):
         self.comments()
         self.scroll()

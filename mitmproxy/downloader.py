@@ -158,6 +158,9 @@ class DouyinDownloader(object):
             # remove the file
             os.remove(file_path)
             self.oc.logout()
+
+            print("uploadFileToCloud success, file:" + dirname + '/' + file_name)
+            print("uploadFileToCloud, count:" + str(self.uploadCount))
         except Exception as e:
             print("uploadFileToCloud error:")
             print(e)
