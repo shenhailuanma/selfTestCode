@@ -20,8 +20,9 @@ def request(flow):
 
 
 def response(flow):
-    url = 'https://api.amemv.com/aweme/v1/feed'
-    if flow.request.url.startswith(url):
+    url1 = 'https://api.amemv.com/aweme/v1/feed'
+    url2 = 'https://aweme.snssdk.com/aweme/v1/feed'
+    if flow.request.url.startswith(url1) or flow.request.url.startswith(url2):
         print("xxxxxxx get response url:" + flow.request.url)
         data = flow.response.content
         # print(data)
@@ -47,5 +48,7 @@ def response(flow):
 
         except Exception as e:
             print(e)
+
+
 
         

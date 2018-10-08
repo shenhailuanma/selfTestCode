@@ -144,7 +144,7 @@ class DouyinDownloader(object):
             self.oc.login('zhangxu', 'zx@12346')
 
             dirname = time.strftime("%Y-%m-%d", time.localtime()) 
-            dirname = dirname + '-%d' %(self.uploadCount/1000)
+            dirname = dirname + '-%d' %(self.uploadCount/200)
 
             try:
                 self.oc.mkdir(dirname)
