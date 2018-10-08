@@ -31,7 +31,7 @@ class DouyinDownloader(object):
         self.mysqlDB = Database(host='localhost', user='root', passwd='zx#Video2018', database='video')
 
         # nextcloud
-        self.oc = owncloud.Client('http://39.107.241.50:18080')
+        self.oc = owncloud.Client('http://127.0.0.1:18080')
         self.oc.login('zhangxu', 'zx@12346')
         
     def downloadAll(self):
