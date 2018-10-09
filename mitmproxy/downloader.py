@@ -33,6 +33,11 @@ class DouyinDownloader(object):
         # nextcloud
         self.oc = owncloud.Client('http://127.0.0.1:18080')
         self.oc.login('zhangxu', 'zx@12346')
+        self.oc.logout()
+
+        self.oc2 = owncloud.Client('http://127.0.0.1:18181')
+        self.oc2.login('zhangxu', 'zx@12346')
+        self.oc2.logout()
         
     def downloadAll(self):
         while True:
@@ -107,12 +112,24 @@ class DouyinDownloader(object):
                 os.rename(filepath, new_file_path)
 
                 # upload
-                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4")
+                print("upload file to local cloud.")
+                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc)
+                print("upload file to remote cloud.")
+                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc2)
+
+                # 更新上传计数
+                self.uploadCount = self.uploadCount + 1
+                print("upload file count:" + str(self.uploadCount))
 
                 # 信息插入数据库
                 urlmd5 = hashlib.md5(task).hexdigest()
                 result,msg = self.mysqlDB.insert_video_info(platform=1, status=0, title='', url=str(task, encoding = "utf-8")  , md5=file_md5, urlmd5=urlmd5, storepath=new_file_path)
                 print("insert_video_info:" + result)
+
+
+                # 删除文件
+                os.remove(new_file_path)
+
 
     def videoExist(self, task):
         # 计算url的md5值，之后根据该值在数据库中查询， 从而判断该视频是否已经存在
@@ -139,28 +156,25 @@ class DouyinDownloader(object):
         md5 = str(hash_code).lower()
         return md5
 
-    def uploadFileToCloud(self, file_path, file_name):
+    def uploadFileToCloud(self, file_path, file_name, oc):
         try:
-            self.oc.login('zhangxu', 'zx@12346')
+            oc.login('zhangxu', 'zx@12346')
 
             dirname = time.strftime("%Y-%m-%d", time.localtime()) 
             dirname = dirname + '-%d' %(self.uploadCount/200)
 
             try:
-                self.oc.mkdir(dirname)
+                oc.mkdir(dirname)
             except Exception as e:
                 print("mkdir failed:" + str(e))
 
             # upload
-            self.oc.put_file(dirname + '/' + file_name, file_path)
+            oc.put_file(dirname + '/' + file_name, file_path)
 
-            self.uploadCount = self.uploadCount + 1
-            # remove the file
-            os.remove(file_path)
-            self.oc.logout()
-
+            # logout
+            oc.logout()
             print("uploadFileToCloud success, file:" + dirname + '/' + file_name)
-            print("uploadFileToCloud, count:" + str(self.uploadCount))
+            
         except Exception as e:
             print("uploadFileToCloud error:")
             print(e)
