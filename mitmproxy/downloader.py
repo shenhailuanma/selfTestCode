@@ -35,7 +35,7 @@ class DouyinDownloader(object):
         self.oc.login('zhangxu', 'zx@12346')
         self.oc.logout()
 
-        self.oc2 = owncloud.Client('http://127.0.0.1:18181')
+        self.oc2 = owncloud.Client('http://115.29.34.236:18181')
         self.oc2.login('zhangxu', 'zx@12346')
         self.oc2.logout()
         
@@ -113,9 +113,15 @@ class DouyinDownloader(object):
 
                 # upload
                 print("upload file to local cloud.")
-                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc)
-                print("upload file to remote cloud.")
-                self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc2)
+                cloudFilePath = self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc)
+
+                # 暂时不上传到远程云了， 网速太慢了。。。
+                # print("upload file to remote cloud.")
+                # self.uploadFileToCloud(new_file_path, file_md5 + ".mp4", self.oc2)
+
+                # 创建异步任务copy视频到远程云
+                # if len(cloudFilePath) > 0:
+                #     self.redisClient.lpush('copyTask', cloudFilePath)
 
                 # 更新上传计数
                 self.uploadCount = self.uploadCount + 1
@@ -167,17 +173,22 @@ class DouyinDownloader(object):
                 oc.mkdir(dirname)
             except Exception as e:
                 print("mkdir failed:" + str(e))
+                return ""
 
             # upload
-            oc.put_file(dirname + '/' + file_name, file_path)
+            cloudFilePath = dirname + '/' + file_name
+            oc.put_file(cloudFilePath, file_path)
 
             # logout
             oc.logout()
-            print("uploadFileToCloud success, file:" + dirname + '/' + file_name)
+            print("uploadFileToCloud success, file:" + cloudFilePath)
+
+            return cloudFilePath
             
         except Exception as e:
             print("uploadFileToCloud error:")
             print(e)
+            return ""
 
 
 if __name__ == '__main__':
