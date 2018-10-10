@@ -173,7 +173,6 @@ class DouyinDownloader(object):
                 oc.mkdir(dirname)
             except Exception as e:
                 print("mkdir failed:" + str(e))
-                return ""
 
             # upload
             cloudFilePath = dirname + '/' + file_name
